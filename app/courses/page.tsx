@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { collection, getDocs, query } from 'firebase/firestore';
-import { db } from '../../firebase/config'; // Adjust path
+import { db } from '@/firebase/config'; // Updated path for consistency
 import Link from 'next/link';
 
 interface Course {
@@ -22,7 +22,7 @@ export default function CourseCatalog() {
     const fetchCourses = async () => {
       try {
         const coursesCollectionRef = collection(db, 'courses');
-        const q = query(coursesCollectionRef); // Simple query to get all courses
+        const q = query(coursesCollectionRef);
         
         const querySnapshot = await getDocs(q);
         

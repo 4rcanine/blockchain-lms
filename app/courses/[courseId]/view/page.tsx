@@ -10,12 +10,12 @@ import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-// --- Type Definitions ---
+// --- Type Definitions (with Sandbox URL added) ---
 interface QandA { id: string; questionText: string; answerText?: string; studentEmail: string; askedAt: any; }
 interface Question { questionText: string; options: string[]; correctAnswerIndex: number; }
 interface Quiz { id: string; title: string; questions: Question[]; }
 interface QuizAttempt { score: number; totalQuestions: number; answers: { [key: number]: number }; submittedAt: any; }
-interface Lesson { id: string; title: string; content: string; qanda?: QandA[]; quiz?: Quiz; }
+interface Lesson { id: string; title: string; content: string; qanda?: QandA[]; quiz?: Quiz; sandboxUrl?: string; }
 interface Module { id: string; title: string; lessons: Lesson[]; }
 
 // --- Q&ASection Component ---
@@ -44,7 +44,7 @@ const QuizResult = ({ attempt, quiz }: { attempt: QuizAttempt; quiz: Quiz }) => 
     return ( <div className="mt-12 pt-8 border-t"> <h2 className="text-2xl font-bold mb-2">Quiz Results</h2> <p className="text-3xl font-bold mb-6">Your Score: {attempt.score} / {attempt.totalQuestions}</p> <div className="space-y-6"> {quiz.questions.map((q, qIndex) => ( <div key={qIndex}> <p className="font-semibold">{qIndex + 1}. {q.questionText}</p> <div className="mt-2 space-y-2"> {q.options.map((option, oIndex) => ( <div key={oIndex} className={`block p-3 border rounded-lg text-sm ${getOptionClassName(qIndex, oIndex)}`}> {option} </div> ))} </div> </div> ))} </div> </div> );
 };
 
-// --- ✅ FIXED fetchData + Main Page Component ---
+// --- Main Page Component ---
 export default function CourseViewerPage() {
     const { user, loading: authLoading } = useAuth();
     const params = useParams();
@@ -59,69 +59,97 @@ export default function CourseViewerPage() {
     const [error, setError] = useState<string | null>(null);
 
     const fetchData = async () => {
-        if (!user || !courseId) return;
-        try {
-            const userDocRef = doc(db, 'users', user.uid);
-            const userDocSnap = await getDoc(userDocRef);
-            if (!userDocSnap.exists() || !userDocSnap.data().enrolledCourses?.includes(courseId)) {
-                throw new Error("You are not enrolled in this course.");
-            }
+    if (!user || !courseId) return;
+    try {
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        if (!userDocSnap.exists() || !userDocSnap.data().enrolledCourses?.includes(courseId)) {
+            throw new Error("You are not enrolled in this course.");
+        }
 
-            const modulesSnapshot = await getDocs(query(collection(db, 'courses', courseId, 'modules'), orderBy('createdAt')));
-            const modulesList: Module[] = await Promise.all(
-                modulesSnapshot.docs.map(async (moduleDoc) => {
-                    const moduleData = moduleDoc.data() as Omit<Module, 'id' | 'lessons'>;
+        const modulesSnapshot = await getDocs(
+            query(collection(db, 'courses', courseId, 'modules'), orderBy('createdAt'))
+        );
 
-                    const lessonsSnapshot = await getDocs(query(
+        const modulesList: Module[] = await Promise.all(
+            modulesSnapshot.docs.map(async (moduleDoc) => {
+                const moduleData = moduleDoc.data() as Omit<Module, 'id' | 'lessons'>;
+
+                const lessonsSnapshot = await getDocs(
+                    query(
                         collection(db, 'courses', courseId, 'modules', moduleDoc.id, 'lessons'),
                         orderBy('createdAt')
-                    ));
+                    )
+                );
 
-                    const lessonsList: Lesson[] = await Promise.all(
-                        lessonsSnapshot.docs.map(async (lessonDoc) => {
-                            const lessonData = lessonDoc.data() as Omit<Lesson, 'id' | 'qanda' | 'quiz'>;
+                const lessonsList: Lesson[] = await Promise.all(
+                    lessonsSnapshot.docs.map(async (lessonDoc) => {
+                        const lessonData = lessonDoc.data() as Omit<Lesson, 'id' | 'qanda' | 'quiz'>;
 
-                            const qandaSnapshot = await getDocs(
-                                query(collection(db, 'courses', courseId, 'modules', moduleDoc.id, 'lessons', lessonDoc.id, 'qanda'), orderBy('askedAt'))
-                            );
-                            const qandaList = qandaSnapshot.docs.map(qDoc => ({ id: qDoc.id, ...qDoc.data() })) as QandA[];
+                        const qandaSnapshot = await getDocs(
+                            query(
+                                collection(
+                                    db,
+                                    'courses',
+                                    courseId,
+                                    'modules',
+                                    moduleDoc.id,
+                                    'lessons',
+                                    lessonDoc.id,
+                                    'qanda'
+                                ),
+                                orderBy('askedAt')
+                            )
+                        );
+                        const qandaList = qandaSnapshot.docs.map((qDoc) => ({
+                            id: qDoc.id,
+                            ...qDoc.data(),
+                        })) as QandA[];
 
-                            const quizDocRef = doc(
-                                db, 'courses', courseId, 'modules', moduleDoc.id,
-                                'lessons', lessonDoc.id, 'quizzes', 'quiz-data'
-                            );
-                            const quizDocSnap = await getDoc(quizDocRef);
-                            const quizData = quizDocSnap.exists()
-                                ? ({ id: quizDocSnap.id, ...quizDocSnap.data() } as Quiz)
-                                : undefined;
+                        const quizDocRef = doc(
+                            db,
+                            'courses',
+                            courseId,
+                            'modules',
+                            moduleDoc.id,
+                            'lessons',
+                            lessonDoc.id,
+                            'quizzes',
+                            'quiz-data'
+                        );
+                        const quizDocSnap = await getDoc(quizDocRef);
+                        const quizData = quizDocSnap.exists()
+                            ? ({ id: quizDocSnap.id, ...quizDocSnap.data() } as Quiz)
+                            : undefined;
 
-                            return {
-                                id: lessonDoc.id,
-                                ...lessonData,
-                                qanda: qandaList,
-                                quiz: quizData,
-                            } as Lesson;
-                        })
-                    );
+                        return {
+                            id: lessonDoc.id,
+                            ...lessonData, 
+                            qanda: qandaList,
+                            quiz: quizData,
+                        } as Lesson;
+                    })
+                );
 
-                    return {
-                        id: moduleDoc.id,
-                        ...moduleData,
-                        lessons: lessonsList,
-                    } as Module;
-                })
-            );
+                return {
+                    id: moduleDoc.id,
+                    ...moduleData, 
+                    lessons: lessonsList,
+                } as Module;
+            })
+        );
 
-            setModules(modulesList);
-            if (modulesList.length > 0 && modulesList[0].lessons.length > 0) {
-                handleLessonSelect(modulesList[0].lessons[0], modulesList[0].id);
-            }
-        } catch (err: any) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
+        setModules(modulesList);
+        if (modulesList.length > 0 && modulesList[0].lessons.length > 0) {
+            handleLessonSelect(modulesList[0].lessons[0], modulesList[0].id);
         }
-    };
+    } catch (err: any) {
+        setError(err.message);
+    } finally {
+        setLoading(false);
+    }
+};
+
 
     const handleLessonSelect = async (lesson: Lesson, moduleId: string) => {
         setSelectedLesson(lesson);
@@ -161,15 +189,12 @@ export default function CourseViewerPage() {
                             <ul className="space-y-1">
                                 {module.lessons.map(lesson => (
                                     <li key={lesson.id}>
-                                        <button
-                                            onClick={() => handleLessonSelect(lesson, module.id)}
-                                            className={`w-full text-left p-2 rounded-md flex justify-between items-center text-sm ${
-                                                selectedLesson?.id === lesson.id
-                                                    ? 'bg-indigo-100 text-indigo-700 font-bold'
-                                                    : 'hover:bg-gray-200'
-                                            }`}>
+                                        <button onClick={() => handleLessonSelect(lesson, module.id)} className={`w-full text-left p-2 rounded-md flex justify-between items-center text-sm ${selectedLesson?.id === lesson.id ? 'bg-indigo-100 text-indigo-700 font-bold' : 'hover:bg-gray-200'}`}>
                                             <span>{lesson.title}</span>
-                                            {lesson.quiz && <span className="text-xs font-bold text-blue-800 bg-blue-200 px-2 py-1 rounded-full"> Quiz </span>}
+                                            <div className="flex items-center gap-2">
+                                                {lesson.sandboxUrl && ( <span className="text-xs font-bold text-purple-800 bg-purple-200 px-2 py-1 rounded-full"> Lab </span> )}
+                                                {lesson.quiz && ( <span className="text-xs font-bold text-blue-800 bg-blue-200 px-2 py-1 rounded-full"> Quiz </span> )}
+                                            </div>
                                         </button>
                                     </li>
                                 ))}
@@ -178,7 +203,6 @@ export default function CourseViewerPage() {
                     ))}
                 </nav>
             </aside>
-
             <main className="w-3/4 p-8 overflow-y-auto h-screen-minus-header">
                 {selectedLesson ? (
                     <article>
@@ -186,6 +210,19 @@ export default function CourseViewerPage() {
                         <div className="prose lg:prose-xl max-w-none">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedLesson.content}</ReactMarkdown>
                         </div>
+                        
+                        {selectedLesson.sandboxUrl && (
+                            <div className="mt-12 pt-8 border-t">
+                                <h2 className="text-2xl font-bold mb-4">Interactive Lab</h2>
+                                <iframe
+                                    src={selectedLesson.sandboxUrl}
+                                    className="w-full h-[600px] border-0 rounded-md overflow-hidden shadow-lg"
+                                    title="Coding Sandbox"
+                                    allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
+                                    sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"
+                                ></iframe>
+                            </div>
+                        )}
 
                         {quizAttempt ? (
                             <QuizResult attempt={quizAttempt} quiz={selectedLesson.quiz!} />
@@ -195,7 +232,7 @@ export default function CourseViewerPage() {
 
                         <QandASection lesson={selectedLesson} courseId={courseId} moduleId={currentModuleId!} />
                     </article>
-                ) : (
+                ) : ( 
                     modules.length > 0 ? <p>Select a lesson from the outline to begin.</p> : <p>The instructor has not added any content to this course yet.</p>
                 )}
             </main>

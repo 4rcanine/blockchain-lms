@@ -1,4 +1,3 @@
-// app/dashboard/page.tsx
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -11,12 +10,15 @@ import {
   getDocs,
   updateDoc,
   DocumentData,
+  orderBy,
+  limit,
 } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import useAuth from '@/hooks/useAuth';
 import { db } from '@/firebase/config';
 import Link from 'next/link';
 import LearningPathGenerator from '@/components/LearningPathGenerator';
+import { Loader2, RefreshCcw } from 'lucide-react';
 
 // ----------------------------- Types ------------------------------------
 interface UserProfile {
@@ -25,17 +27,24 @@ interface UserProfile {
   enrolledCourses?: string[];
   learningPath?: string[];
 }
+
 interface Course {
   id: string;
   title: string;
   description: string;
-  tags?: string[];
+  tags: string[];
+  imageUrl?: string; // ✅ Added for course cover image
   instructorId?: string;
+  createdAt?: any;
+  updatedAt?: any;
   [k: string]: any;
 }
 
 // -------------------------- Utility: batch 'in' queries ------------------
-async function fetchDocsByIds(collectionRef: ReturnType<typeof collection>, ids: string[]): Promise<DocumentData[]> {
+async function fetchDocsByIds(
+  collectionRef: ReturnType<typeof collection>,
+  ids: string[]
+): Promise<DocumentData[]> {
   if (!ids || ids.length === 0) return [];
   const batches: string[][] = [];
   for (let i = 0; i < ids.length; i += 10) batches.push(ids.slice(i, i + 10));
@@ -48,7 +57,7 @@ async function fetchDocsByIds(collectionRef: ReturnType<typeof collection>, ids:
   return results;
 }
 
-// ---------------------------- CourseCard ------------------------
+// ---------------------------- UPDATED CourseCard ------------------------
 const CourseCard = ({
   course,
   isEducator = false,
@@ -60,7 +69,6 @@ const CourseCard = ({
 }) => {
   let linkHref = `/courses/${course.id}`;
   let linkText = 'View & Enroll →';
-
   if (isEducator) {
     linkHref = `/courses/${course.id}/manage`;
     linkText = 'Manage Course →';
@@ -69,36 +77,33 @@ const CourseCard = ({
     linkText = 'Continue Learning →';
   }
 
-  const shortDesc =
-    course.description && course.description.length > 120
-      ? `${course.description.slice(0, 117)}...`
-      : course.description || '';
-
   return (
-    <article className="bg-white p-4 rounded-lg shadow hover:shadow-lg transition-shadow h-full flex flex-col justify-between">
-      <div>
+    <div className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow flex flex-col">
+      {/* --- ✅ Course Cover Image --- */}
+      {course.imageUrl ? (
+        <img
+          src={course.imageUrl}
+          alt={course.title}
+          className="w-full h-40 object-cover rounded-t-lg"
+        />
+      ) : (
+        <div className="w-full h-40 bg-gray-200 rounded-t-lg flex items-center justify-center">
+          <span className="text-gray-400">No Image</span>
+        </div>
+      )}
+      <div className="p-4 flex flex-col flex-grow">
         <h3 className="font-bold text-lg mb-2">{course.title}</h3>
-        <p className="text-sm text-gray-600 mb-3">{shortDesc}</p>
-        {course.tags && course.tags.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-3">
-            {course.tags.map((t) => (
-              <span
-                key={t}
-                className="text-xs px-2 py-1 bg-gray-100 rounded-full text-gray-700"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
+        <p className="text-sm text-gray-600 mb-4 flex-grow">
+          {course.description?.substring(0, 80)}...
+        </p>
+        <Link
+          href={linkHref}
+          className="font-semibold text-sm text-indigo-600 hover:underline mt-2"
+        >
+          {linkText}
+        </Link>
       </div>
-      <Link
-        href={linkHref}
-        className="text-sm font-semibold text-indigo-600 hover:underline mt-2"
-      >
-        {linkText}
-      </Link>
-    </article>
+    </div>
   );
 };
 
@@ -111,8 +116,10 @@ export default function Dashboard() {
   const [enrolledCourses, setEnrolledCourses] = useState<Course[]>([]);
   const [createdCourses, setCreatedCourses] = useState<Course[]>([]);
   const [suggestedCourses, setSuggestedCourses] = useState<Course[]>([]);
+  const [recentActivity, setRecentActivity] = useState<Course[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [changingPath, setChangingPath] = useState(false);
 
   // ---------------- Fetch Dashboard Data ----------------
   useEffect(() => {
@@ -150,9 +157,25 @@ export default function Dashboard() {
           );
           const createdSnap = await getDocs(createdQ);
           setCreatedCourses(
-            createdSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[]
+            createdSnap.docs.map((d) => ({
+              id: d.id,
+              ...(d.data() as any),
+            })) as Course[]
           );
         }
+
+        // Fetch recent activity
+        const recentQ = query(
+          collection(db, 'courses'),
+          orderBy('updatedAt', 'desc'),
+          limit(5)
+        );
+        const recentSnap = await getDocs(recentQ);
+        const recent = recentSnap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        })) as Course[];
+        setRecentActivity(recent);
 
         setError(null);
       } catch (err) {
@@ -178,6 +201,23 @@ export default function Dashboard() {
     }
   };
 
+  // ---------------- Change Learning Path ----------------
+  const handleChangeLearningPath = async () => {
+    if (!user || !userProfile) return;
+    if (!confirm('Are you sure you want to change your learning path?')) return;
+
+    try {
+      setChangingPath(true);
+      const userDocRef = doc(db, 'users', user.uid);
+      await updateDoc(userDocRef, { learningPath: [] });
+      setUserProfile({ ...userProfile, learningPath: [] });
+    } catch (err) {
+      console.error('Failed to reset learning path:', err);
+    } finally {
+      setChangingPath(false);
+    }
+  };
+
   // ---------------- Generate Suggested Courses ----------------
   useEffect(() => {
     const generateSuggestions = async () => {
@@ -188,7 +228,10 @@ export default function Dashboard() {
 
       try {
         const snapshot = await getDocs(query(collection(db, 'courses')));
-        const allCourses = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
+        const allCourses = snapshot.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        })) as Course[];
 
         const scoredCourses = allCourses
           .map((c) => {
@@ -202,7 +245,8 @@ export default function Dashboard() {
           .filter(
             (c) =>
               c.score > 0 &&
-              (!userProfile.enrolledCourses || !userProfile.enrolledCourses.includes(c.id))
+              (!userProfile.enrolledCourses ||
+                !userProfile.enrolledCourses.includes(c.id))
           )
           .sort((a, b) => b.score - a.score)
           .slice(0, 3);
@@ -217,9 +261,25 @@ export default function Dashboard() {
   }, [userProfile?.learningPath, userProfile?.enrolledCourses]);
 
   // -------------------- Renderers --------------------
+  const renderRecentActivity = () => {
+    if (!recentActivity.length) return null;
+    return (
+      <div>
+        <h2 className="text-2xl font-semibold mb-4">🕓 Recent Activity</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          The most recently updated or added courses across the platform.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {recentActivity.map((c) => (
+            <CourseCard key={c.id} course={c} />
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const renderStudentDashboard = () => {
     if (!userProfile) return null;
-
     const learningPath = userProfile.learningPath || [];
     const firstStep = learningPath[0];
 
@@ -227,7 +287,9 @@ export default function Dashboard() {
       <div className="space-y-12">
         {!learningPath.length ? (
           <div>
-            <h2 className="text-2xl font-semibold mb-4">Personalize Your Learning</h2>
+            <h2 className="text-2xl font-semibold mb-4">
+              Personalize Your Learning
+            </h2>
             <p className="text-sm text-gray-600 mb-4">
               Generate a learning path and we’ll suggest courses tailored to your goals.
             </p>
@@ -236,17 +298,37 @@ export default function Dashboard() {
         ) : (
           <div className="space-y-8">
             <div className="bg-white p-6 rounded-lg shadow">
-              <h2 className="text-2xl font-semibold mb-3">🎯 Your Learning Path</h2>
-              <p className="text-gray-600 mb-4">Here’s your roadmap to success:</p>
-              <div className="flex flex-wrap gap-2">
-                {learningPath.map((step, i) => (
-                  <span
-                    key={i}
-                    className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm"
-                  >
-                    {step}
-                  </span>
-                ))}
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                <div>
+                  <h2 className="text-2xl font-semibold mb-3">
+                    🎯 Your Learning Path
+                  </h2>
+                  <div className="flex flex-wrap gap-2">
+                    {learningPath.map((step, i) => (
+                      <span
+                        key={i}
+                        className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm"
+                      >
+                        {step}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  onClick={handleChangeLearningPath}
+                  disabled={changingPath}
+                  className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 disabled:opacity-50 transition"
+                >
+                  {changingPath ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Changing...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCcw className="w-4 h-4" /> Change Learning Path
+                    </>
+                  )}
+                </button>
               </div>
             </div>
 
@@ -254,14 +336,17 @@ export default function Dashboard() {
               <div className="bg-indigo-50 p-6 rounded-lg border border-indigo-200">
                 <h3 className="text-xl font-semibold">🚀 Start Here</h3>
                 <p className="text-gray-700">
-                  Begin with: <span className="font-bold text-indigo-700">{firstStep}</span>
+                  Begin with:{' '}
+                  <span className="font-bold text-indigo-700">{firstStep}</span>
                 </p>
               </div>
             )}
 
             {suggestedCourses.length > 0 && (
               <div>
-                <h2 className="text-2xl font-semibold mb-4">📚 Courses Suggested For You</h2>
+                <h2 className="text-2xl font-semibold mb-4">
+                  📚 Courses Suggested For You
+                </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {suggestedCourses.map((c) => (
                     <CourseCard key={c.id} course={c} isEnrolled={false} />
@@ -289,30 +374,36 @@ export default function Dashboard() {
             </p>
           )}
         </div>
+
+        {renderRecentActivity()}
       </div>
     );
   };
 
   const renderEducatorDashboard = () => (
-    <div>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-semibold">My Created Courses</h2>
-        <Link
-          href="/courses/create"
-          className="px-4 py-2 font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
-        >
-          Create New Course
-        </Link>
-      </div>
-      {createdCourses.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {createdCourses.map((c) => (
-            <CourseCard key={c.id} course={c} isEducator />
-          ))}
+    <div className="space-y-12">
+      <div>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-semibold">My Created Courses</h2>
+          <Link
+            href="/courses/create"
+            className="px-4 py-2 font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+          >
+            Create New Course
+          </Link>
         </div>
-      ) : (
-        <p>You have not created any courses yet.</p>
-      )}
+        {createdCourses.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {createdCourses.map((c) => (
+              <CourseCard key={c.id} course={c} isEducator />
+            ))}
+          </div>
+        ) : (
+          <p>You have not created any courses yet.</p>
+        )}
+      </div>
+
+      {renderRecentActivity()}
     </div>
   );
 
@@ -335,6 +426,8 @@ export default function Dashboard() {
           <p className="text-sm text-gray-600">Create and manage course tags.</p>
         </Link>
       </div>
+
+      {renderRecentActivity()}
     </div>
   );
 

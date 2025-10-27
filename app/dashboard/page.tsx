@@ -23,7 +23,7 @@ interface UserProfile {
   email: string;
   role: 'student' | 'educator' | 'admin';
   enrolledCourses?: string[];
-  learningPath?: string[]; // tags or keywords
+  learningPath?: string[];
 }
 interface Course {
   id: string;
@@ -35,7 +35,6 @@ interface Course {
 }
 
 // -------------------------- Utility: batch 'in' queries ------------------
-// Firestore 'in' operator supports up to 10 values. This helper splits ids into batches.
 async function fetchDocsByIds(collectionRef: ReturnType<typeof collection>, ids: string[]): Promise<DocumentData[]> {
   if (!ids || ids.length === 0) return [];
   const batches: string[][] = [];
@@ -49,45 +48,56 @@ async function fetchDocsByIds(collectionRef: ReturnType<typeof collection>, ids:
   return results;
 }
 
-// ---------------------------- Enhanced CourseCard ------------------------
-const CourseCard = ({ course, isEducator = false }: { course: Course; isEducator?: boolean }) => {
+// ---------------------------- CourseCard ------------------------
+const CourseCard = ({
+  course,
+  isEducator = false,
+  isEnrolled = false,
+}: {
+  course: Course;
+  isEducator?: boolean;
+  isEnrolled?: boolean;
+}) => {
+  let linkHref = `/courses/${course.id}`;
+  let linkText = 'View & Enroll →';
+
+  if (isEducator) {
+    linkHref = `/courses/${course.id}/manage`;
+    linkText = 'Manage Course →';
+  } else if (isEnrolled) {
+    linkHref = `/courses/${course.id}/view`;
+    linkText = 'Continue Learning →';
+  }
+
   const shortDesc =
-    course.description && course.description.length > 120 ? `${course.description.slice(0, 117)}...` : course.description || '';
+    course.description && course.description.length > 120
+      ? `${course.description.slice(0, 117)}...`
+      : course.description || '';
 
   return (
-    <article className="bg-white p-4 rounded-lg shadow hover:shadow-lg transition-shadow h-full flex flex-col">
-      <div className="flex-1">
+    <article className="bg-white p-4 rounded-lg shadow hover:shadow-lg transition-shadow h-full flex flex-col justify-between">
+      <div>
         <h3 className="font-bold text-lg mb-2">{course.title}</h3>
         <p className="text-sm text-gray-600 mb-3">{shortDesc}</p>
-
         {course.tags && course.tags.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3">
             {course.tags.map((t) => (
-              <span key={t} className="text-xs px-2 py-1 bg-gray-100 rounded-full text-gray-700">
+              <span
+                key={t}
+                className="text-xs px-2 py-1 bg-gray-100 rounded-full text-gray-700"
+              >
                 {t}
               </span>
             ))}
           </div>
         )}
       </div>
-
-      <div className="mt-3 flex items-center justify-between">
-        {isEducator ? (
-          <Link href={`/courses/${course.id}/manage`} className="text-sm font-semibold text-indigo-600 hover:underline">
-            Manage Course →
-          </Link>
-        ) : (
-          <Link href={`/courses/${course.id}/view`} className="text-sm font-semibold text-indigo-600 hover:underline">
-            Start Learning →
-          </Link>
-        )}
-
-        {isEducator && (
-          <Link href={`/courses/${course.id}/analytics`} className="text-xs px-2 py-1 bg-gray-200 rounded ml-2">
-            Analytics
-          </Link>
-        )}
-      </div>
+      <Link
+        href={linkHref}
+        className="text-sm font-semibold text-indigo-600 hover:underline mt-2"
+      >
+        {linkText}
+      </Link>
     </article>
   );
 };
@@ -104,10 +114,9 @@ export default function Dashboard() {
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch profile + courses based on role
+  // ---------------- Fetch Dashboard Data ----------------
   useEffect(() => {
     if (loading) return;
-
     if (!user) {
       router.push('/login');
       return;
@@ -116,33 +125,37 @@ export default function Dashboard() {
     const fetchDashboardData = async () => {
       setIsDataLoading(true);
       try {
-        // Fetch user profile
         const userDocRef = doc(db, 'users', user.uid);
         const userDocSnap = await getDoc(userDocRef);
         if (!userDocSnap.exists()) throw new Error('User profile not found.');
         const profileData = userDocSnap.data() as UserProfile;
         setUserProfile(profileData);
 
-        // Student: fetch enrolled courses (batched if >10)
+        // Fetch enrolled courses for students
         if (profileData.role === 'student') {
-          if (profileData.enrolledCourses && profileData.enrolledCourses.length > 0) {
-            const enrolledDocs = await fetchDocsByIds(collection(db, 'courses'), profileData.enrolledCourses);
+          if (profileData.enrolledCourses?.length) {
+            const enrolledDocs = await fetchDocsByIds(
+              collection(db, 'courses'),
+              profileData.enrolledCourses
+            );
             setEnrolledCourses(enrolledDocs as Course[]);
-          } else {
-            setEnrolledCourses([]);
-          }
+          } else setEnrolledCourses([]);
         }
 
-        // Educator: fetch courses created by educator
+        // Fetch educator-created courses
         if (profileData.role === 'educator') {
-          const createdQ = query(collection(db, 'courses'), where('instructorId', '==', user.uid));
+          const createdQ = query(
+            collection(db, 'courses'),
+            where('instructorId', '==', user.uid)
+          );
           const createdSnap = await getDocs(createdQ);
-          const createdList = createdSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
-          setCreatedCourses(createdList);
+          setCreatedCourses(
+            createdSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[]
+          );
         }
 
         setError(null);
-      } catch (err: any) {
+      } catch (err) {
         console.error(err);
         setError('Failed to fetch dashboard data.');
       } finally {
@@ -153,7 +166,7 @@ export default function Dashboard() {
     fetchDashboardData();
   }, [user, loading, router]);
 
-  // Save learning path to user's doc
+  // ---------------- Save Learning Path ----------------
   const handleSavePath = async (path: string[]) => {
     if (!user || !userProfile) return;
     try {
@@ -165,82 +178,106 @@ export default function Dashboard() {
     }
   };
 
-  // Generate suggestions when learningPath changes
+  // ---------------- Generate Suggested Courses ----------------
   useEffect(() => {
     const generateSuggestions = async () => {
-      if (!userProfile?.learningPath || userProfile.learningPath.length === 0) {
+      if (!userProfile?.learningPath?.length) {
         setSuggestedCourses([]);
         return;
       }
 
       try {
-        const coursesSnapshot = await getDocs(query(collection(db, 'courses')));
-        const allCourses = coursesSnapshot.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
+        const snapshot = await getDocs(query(collection(db, 'courses')));
+        const allCourses = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
 
-        // Score each course by matching tags with learningPath
-        const scored = allCourses
+        const scoredCourses = allCourses
           .map((c) => {
             const tags = c.tags || [];
             let score = 0;
             tags.forEach((t) => {
               if (userProfile.learningPath!.includes(t)) score++;
             });
-            return { course: c, score };
+            return { ...c, score };
           })
-          // exclude already enrolled courses for students
-          .filter((x) => {
-            if (userProfile.role === 'student' && userProfile.enrolledCourses?.includes(x.course.id)) return false;
-            return x.score > 0;
-          })
+          .filter(
+            (c) =>
+              c.score > 0 &&
+              (!userProfile.enrolledCourses || !userProfile.enrolledCourses.includes(c.id))
+          )
           .sort((a, b) => b.score - a.score)
-          .slice(0, 3) // top 3 suggestions (adjust as needed)
-          .map((x) => x.course);
+          .slice(0, 3);
 
-        setSuggestedCourses(scored);
+        setSuggestedCourses(scoredCourses);
       } catch (err) {
         console.error('Failed to generate suggestions:', err);
       }
     };
 
     generateSuggestions();
-  }, [userProfile?.learningPath, userProfile?.role, userProfile?.enrolledCourses]);
+  }, [userProfile?.learningPath, userProfile?.enrolledCourses]);
 
-  // -------------------- Renderers for role-specific dashboards --------------------
-
+  // -------------------- Renderers --------------------
   const renderStudentDashboard = () => {
     if (!userProfile) return null;
 
+    const learningPath = userProfile.learningPath || [];
+    const firstStep = learningPath[0];
+
     return (
       <div className="space-y-12">
-        {/* If no learning path -> show generator */}
-        {!userProfile.learningPath || userProfile.learningPath.length === 0 ? (
+        {!learningPath.length ? (
           <div>
             <h2 className="text-2xl font-semibold mb-4">Personalize Your Learning</h2>
             <p className="text-sm text-gray-600 mb-4">
-              Generate a recommended learning path and we'll suggest courses tailored to your goals.
+              Generate a learning path and we’ll suggest courses tailored to your goals.
             </p>
             <LearningPathGenerator onPathGenerated={handleSavePath} />
           </div>
         ) : (
-          suggestedCourses.length > 0 && (
-            <div>
-              <h2 className="text-2xl font-semibold mb-4">Courses Suggested For You</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {suggestedCourses.map((c) => (
-                  <CourseCard key={c.id} course={c} />
+          <div className="space-y-8">
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h2 className="text-2xl font-semibold mb-3">🎯 Your Learning Path</h2>
+              <p className="text-gray-600 mb-4">Here’s your roadmap to success:</p>
+              <div className="flex flex-wrap gap-2">
+                {learningPath.map((step, i) => (
+                  <span
+                    key={i}
+                    className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm"
+                  >
+                    {step}
+                  </span>
                 ))}
               </div>
             </div>
-          )
+
+            {firstStep && (
+              <div className="bg-indigo-50 p-6 rounded-lg border border-indigo-200">
+                <h3 className="text-xl font-semibold">🚀 Start Here</h3>
+                <p className="text-gray-700">
+                  Begin with: <span className="font-bold text-indigo-700">{firstStep}</span>
+                </p>
+              </div>
+            )}
+
+            {suggestedCourses.length > 0 && (
+              <div>
+                <h2 className="text-2xl font-semibold mb-4">📚 Courses Suggested For You</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {suggestedCourses.map((c) => (
+                    <CourseCard key={c.id} course={c} isEnrolled={false} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
-        {/* Enrolled courses always visible */}
         <div>
           <h2 className="text-2xl font-semibold mb-4">My Enrolled Courses</h2>
           {enrolledCourses.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {enrolledCourses.map((c) => (
-                <CourseCard key={c.id} course={c} />
+                <CourseCard key={c.id} course={c} isEnrolled={true} />
               ))}
             </div>
           ) : (
@@ -256,53 +293,56 @@ export default function Dashboard() {
     );
   };
 
-  const renderEducatorDashboard = () => {
-    return (
-      <div>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-semibold">My Created Courses</h2>
-          <Link href="/courses/create" className="px-4 py-2 font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700">
-            Create New Course
-          </Link>
-        </div>
-        {createdCourses.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {createdCourses.map((c) => (
-              <CourseCard key={c.id} course={c} isEducator />
-            ))}
-          </div>
-        ) : (
-          <p>You have not created any courses yet.</p>
-        )}
+  const renderEducatorDashboard = () => (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-semibold">My Created Courses</h2>
+        <Link
+          href="/courses/create"
+          className="px-4 py-2 font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+        >
+          Create New Course
+        </Link>
       </div>
-    );
-  };
-
-  const renderAdminDashboard = () => {
-    return (
-      <div className="p-6 bg-gray-100 rounded-lg">
-        <h2 className="text-2xl font-semibold mb-4">Admin Tools</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Link href="/admin/users" className="block p-4 bg-white rounded-md shadow hover:shadow-lg transition-shadow">
-            <h3 className="font-bold">User Management</h3>
-            <p className="text-sm text-gray-600">View and manage all users.</p>
-          </Link>
-          <Link href="/admin/tags" className="block p-4 bg-white rounded-md shadow hover:shadow-lg transition-shadow">
-            <h3 className="font-bold">Tag Management</h3>
-            <p className="text-sm text-gray-600">Create and manage course tags.</p>
-          </Link>
+      {createdCourses.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {createdCourses.map((c) => (
+            <CourseCard key={c.id} course={c} isEducator />
+          ))}
         </div>
-      </div>
-    );
-  };
+      ) : (
+        <p>You have not created any courses yet.</p>
+      )}
+    </div>
+  );
 
-  // -------------------- Main render + loading/errors --------------------
-  if (loading || isDataLoading) {
+  const renderAdminDashboard = () => (
+    <div className="p-6 bg-gray-100 rounded-lg">
+      <h2 className="text-2xl font-semibold mb-4">Admin Tools</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Link
+          href="/admin/users"
+          className="block p-4 bg-white rounded-md shadow hover:shadow-lg transition-shadow"
+        >
+          <h3 className="font-bold">User Management</h3>
+          <p className="text-sm text-gray-600">View and manage all users.</p>
+        </Link>
+        <Link
+          href="/admin/tags"
+          className="block p-4 bg-white rounded-md shadow hover:shadow-lg transition-shadow"
+        >
+          <h3 className="font-bold">Tag Management</h3>
+          <p className="text-sm text-gray-600">Create and manage course tags.</p>
+        </Link>
+      </div>
+    </div>
+  );
+
+  // -------------------- Main Render --------------------
+  if (loading || isDataLoading)
     return <div className="text-center mt-10">Loading Dashboard...</div>;
-  }
-  if (error) {
+  if (error)
     return <div className="text-center mt-10 text-red-500">{error}</div>;
-  }
 
   return (
     <div>
@@ -311,7 +351,6 @@ export default function Dashboard() {
         <p className="text-gray-600">Welcome back, {userProfile?.email}!</p>
       </div>
 
-      {/* Role-specific content */}
       {userProfile?.role === 'student' && renderStudentDashboard()}
       {userProfile?.role === 'educator' && renderEducatorDashboard()}
       {userProfile?.role === 'admin' && renderAdminDashboard()}

@@ -32,7 +32,7 @@ export default function MyCourses() {
       try {
         // This query is now enforced by our security rules
         const coursesCollectionRef = collection(db, 'courses');
-        const q = query(coursesCollectionRef, where('instructorId', '==', user.uid));
+        const q = query(coursesCollectionRef, where('instructorIds', 'array-contains', user.uid));
         
         const querySnapshot = await getDocs(q);
         

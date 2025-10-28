@@ -1,22 +1,50 @@
 // hooks/useAuth.ts
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from '../firebase/config'; // Adjust path if needed
+import { doc, onSnapshot } from 'firebase/firestore';
+import { auth, db } from '../firebase/config';
+
+// ✅ Create a merged type instead of extending Firebase's User
+export type AuthUser = User & {
+  displayName: string | null;
+  photoURL: string | null;
+  role?: string;
+};
 
 const useAuth = () => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // This is a listener that checks for auth state changes
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user); // Sets the user object if logged in, or null if logged out
-      setLoading(false); // We are done loading
+    const unsubscribeAuth = onAuthStateChanged(auth, (authUser) => {
+      if (authUser) {
+        const userDocRef = doc(db, 'users', authUser.uid);
+
+        const unsubscribeFirestore = onSnapshot(userDocRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const firestoreData = docSnap.data();
+            // ✅ Safely merge Auth and Firestore data
+            setUser({
+              ...authUser,
+              displayName: firestoreData.displayName ?? authUser.displayName ?? null,
+              photoURL: firestoreData.photoURL ?? authUser.photoURL ?? null,
+              role: firestoreData.role ?? undefined,
+            });
+          } else {
+            setUser(authUser as AuthUser);
+          }
+          setLoading(false);
+        });
+
+        return () => unsubscribeFirestore();
+      } else {
+        setUser(null);
+        setLoading(false);
+      }
     });
 
-    // Cleanup the listener when the component unmounts
-    return () => unsubscribe();
-  }, []); // The empty array ensures this effect runs only once
+    return () => unsubscribeAuth();
+  }, []);
 
   return { user, loading };
 };

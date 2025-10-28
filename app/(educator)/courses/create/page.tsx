@@ -74,7 +74,7 @@ export default function CreateCourse() {
         description,
         tags: tagStrings,
         imageUrl,
-        instructorId: user.uid,
+        instructorIds: [user.uid], 
         createdAt: new Date(),
       });
 

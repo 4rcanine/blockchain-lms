@@ -13,7 +13,7 @@ export async function POST(request: Request) {
 
   try {
     // --- THIS IS THE CORRECTED MODEL NAME ---
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const fullPrompt = `
       You are an expert curriculum designer for a Web3 learning platform.

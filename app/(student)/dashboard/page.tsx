@@ -152,9 +152,9 @@ export default function Dashboard() {
         // Fetch educator-created courses
         if (profileData.role === 'educator') {
           const createdQ = query(
-            collection(db, 'courses'),
-            where('instructorId', '==', user.uid)
-          );
+        collection(db, 'courses'),
+        where('instructorIds', 'array-contains', user.uid)
+    );
           const createdSnap = await getDocs(createdQ);
           setCreatedCourses(
             createdSnap.docs.map((d) => ({

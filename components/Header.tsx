@@ -21,42 +21,40 @@ export default function Header() {
     }
   };
 
-  return (
+   return (
     <header className="w-full bg-white shadow-md">
-      <nav className="container mx-auto px-6 py-4 flex justify-between items-center">
-        <Link href="/" className="text-xl font-bold text-indigo-600">
-          BlockchainLMS
-        </Link>
-
-         <Link href="/courses" className="text-gray-700 hover:text-indigo-600 font-semibold">
-            Courses
-         </Link>
-        
-        <div className="flex items-center space-x-4">
-          {loading ? (
-            <div className="text-gray-500">Loading...</div>
-          ) : user ? (
-            <>
-              <span className="text-gray-700">Welcome, {user.email}</span>
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 font-medium text-white bg-red-500 rounded-md hover:bg-red-600"
-              >
-                Logout
-              </button>
-            </>
-          ) : (
-            <>
-              <Link href="/login" className="text-gray-700 hover:text-indigo-600">
-                Login
-              </Link>
-              <Link href="/signup" className="px-4 py-2 font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700">
-                Sign Up
-              </Link>
-            </>
-          )}
-        </div>
-      </nav>
+        <nav className="container mx-auto px-6 py-3 flex justify-between items-center">
+            <div className="flex items-center space-x-6">
+                <Link href="/" className="text-xl font-bold text-indigo-600"> BlockchainLMS </Link>
+            </div>
+            
+            <div className="flex items-center space-x-4">
+                {loading ? ( <div className="text-gray-500">...</div> )
+                : user ? (
+                    <>
+                        <span className="text-gray-700 hidden sm:block">
+                            Welcome, {user.displayName || user.email}
+                        </span>
+                        <button onClick={handleLogout} className="..."> Logout </button>
+                        {/* --- NEW PROFILE PICTURE --- */}
+                        <Link href="/profile">
+                            {user.photoURL ? (
+                                <img src={user.photoURL} alt="Profile" className="h-10 w-10 rounded-full object-cover" />
+                            ) : (
+                                <div className="h-10 w-10 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">
+                                    {user.email?.[0].toUpperCase()}
+                                </div>
+                            )}
+                        </Link>
+                    </>
+                ) : (
+                    <>
+                        <Link href="/login" className="..."> Login </Link>
+                        <Link href="/signup" className="..."> Sign Up </Link>
+                    </>
+                )}
+            </div>
+        </nav>
     </header>
   );
 }

@@ -487,6 +487,9 @@ export default function ManageCoursePage() {
         </div>
         <div className="flex gap-2">
           <span className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md shadow-sm">Content Editor</span>
+           <Link href={`/courses/${courseId}/enrollments`} className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md">
+            Enrollments
+           </Link>
           <Link href={`/courses/${courseId}/analytics`} className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md">
             Analytics
           </Link>

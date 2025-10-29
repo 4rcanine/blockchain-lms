@@ -9,12 +9,12 @@ import {
   where,
   getDocs,
   updateDoc,
-  DocumentData,
   orderBy,
   limit,
+  DocumentData,
 } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
-import useAuth from '@/hooks/useAuth';
+import useAuth, { AuthUser } from '@/hooks/useAuth';
 import { db } from '@/firebase/config';
 import Link from 'next/link';
 import LearningPathGenerator from '@/components/LearningPathGenerator';
@@ -26,6 +26,7 @@ interface UserProfile {
   role: 'student' | 'educator' | 'admin';
   enrolledCourses?: string[];
   learningPath?: string[];
+  displayName?: string;
 }
 
 interface Course {
@@ -33,7 +34,7 @@ interface Course {
   title: string;
   description: string;
   tags: string[];
-  imageUrl?: string; // ✅ Added for course cover image
+  imageUrl?: string;
   instructorId?: string;
   createdAt?: any;
   updatedAt?: any;
@@ -57,7 +58,7 @@ async function fetchDocsByIds(
   return results;
 }
 
-// ---------------------------- UPDATED CourseCard ------------------------
+// ---------------------------- CourseCard ------------------------
 const CourseCard = ({
   course,
   isEducator = false,
@@ -79,7 +80,6 @@ const CourseCard = ({
 
   return (
     <div className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow flex flex-col">
-      {/* --- ✅ Course Cover Image --- */}
       {course.imageUrl ? (
         <img
           src={course.imageUrl}
@@ -109,7 +109,7 @@ const CourseCard = ({
 
 // ------------------------------- Dashboard --------------------------------
 export default function Dashboard() {
-  const { user, loading } = useAuth();
+  const { user: authUser, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -117,28 +117,27 @@ export default function Dashboard() {
   const [createdCourses, setCreatedCourses] = useState<Course[]>([]);
   const [suggestedCourses, setSuggestedCourses] = useState<Course[]>([]);
   const [recentActivity, setRecentActivity] = useState<Course[]>([]);
-  const [isDataLoading, setIsDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [changingPath, setChangingPath] = useState(false);
+  const [isDataLoading, setIsDataLoading] = useState(true);
 
   // ---------------- Fetch Dashboard Data ----------------
   useEffect(() => {
-    if (loading) return;
-    if (!user) {
-      router.push('/login');
-      return;
-    }
+    const fetchAllData = async () => {
+      if (!authUser) {
+        if (!authLoading) router.push('/login');
+        return;
+      }
 
-    const fetchDashboardData = async () => {
       setIsDataLoading(true);
       try {
-        const userDocRef = doc(db, 'users', user.uid);
+        const userDocRef = doc(db, 'users', authUser.uid);
         const userDocSnap = await getDoc(userDocRef);
         if (!userDocSnap.exists()) throw new Error('User profile not found.');
         const profileData = userDocSnap.data() as UserProfile;
         setUserProfile(profileData);
 
-        // Fetch enrolled courses for students
+        // Fetch enrolled or created courses
         if (profileData.role === 'student') {
           if (profileData.enrolledCourses?.length) {
             const enrolledDocs = await fetchDocsByIds(
@@ -147,37 +146,21 @@ export default function Dashboard() {
             );
             setEnrolledCourses(enrolledDocs as Course[]);
           } else setEnrolledCourses([]);
-        }
-
-        // Fetch educator-created courses
-        if (profileData.role === 'educator') {
+        } else if (profileData.role === 'educator') {
           const createdQ = query(
-        collection(db, 'courses'),
-        where('instructorIds', 'array-contains', user.uid)
-    );
+            collection(db, 'courses'),
+            where('instructorIds', 'array-contains', authUser.uid)
+          );
           const createdSnap = await getDocs(createdQ);
           setCreatedCourses(
-            createdSnap.docs.map((d) => ({
-              id: d.id,
-              ...(d.data() as any),
-            })) as Course[]
+            createdSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[]
           );
         }
 
         // Fetch recent activity
-        const recentQ = query(
-          collection(db, 'courses'),
-          orderBy('updatedAt', 'desc'),
-          limit(5)
-        );
+        const recentQ = query(collection(db, 'courses'), orderBy('updatedAt', 'desc'), limit(5));
         const recentSnap = await getDocs(recentQ);
-        const recent = recentSnap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as any),
-        })) as Course[];
-        setRecentActivity(recent);
-
-        setError(null);
+        setRecentActivity(recentSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[]);
       } catch (err) {
         console.error(err);
         setError('Failed to fetch dashboard data.');
@@ -186,14 +169,14 @@ export default function Dashboard() {
       }
     };
 
-    fetchDashboardData();
-  }, [user, loading, router]);
+    fetchAllData();
+  }, [authUser, authLoading, router]);
 
   // ---------------- Save Learning Path ----------------
   const handleSavePath = async (path: string[]) => {
-    if (!user || !userProfile) return;
+    if (!authUser || !userProfile) return;
     try {
-      const userDocRef = doc(db, 'users', user.uid);
+      const userDocRef = doc(db, 'users', authUser.uid);
       await updateDoc(userDocRef, { learningPath: path });
       setUserProfile({ ...userProfile, learningPath: path });
     } catch (err) {
@@ -203,12 +186,12 @@ export default function Dashboard() {
 
   // ---------------- Change Learning Path ----------------
   const handleChangeLearningPath = async () => {
-    if (!user || !userProfile) return;
+    if (!authUser || !userProfile) return;
     if (!confirm('Are you sure you want to change your learning path?')) return;
 
     try {
       setChangingPath(true);
-      const userDocRef = doc(db, 'users', user.uid);
+      const userDocRef = doc(db, 'users', authUser.uid);
       await updateDoc(userDocRef, { learningPath: [] });
       setUserProfile({ ...userProfile, learningPath: [] });
     } catch (err) {
@@ -227,11 +210,8 @@ export default function Dashboard() {
       }
 
       try {
-        const snapshot = await getDocs(query(collection(db, 'courses')));
-        const allCourses = snapshot.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as any),
-        })) as Course[];
+        const snapshot = await getDocs(collection(db, 'courses'));
+        const allCourses = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
 
         const scoredCourses = allCourses
           .map((c) => {
@@ -245,8 +225,7 @@ export default function Dashboard() {
           .filter(
             (c) =>
               c.score > 0 &&
-              (!userProfile.enrolledCourses ||
-                !userProfile.enrolledCourses.includes(c.id))
+              (!userProfile.enrolledCourses || !userProfile.enrolledCourses.includes(c.id))
           )
           .sort((a, b) => b.score - a.score)
           .slice(0, 3);
@@ -260,23 +239,18 @@ export default function Dashboard() {
     generateSuggestions();
   }, [userProfile?.learningPath, userProfile?.enrolledCourses]);
 
-  // -------------------- Renderers --------------------
-  const renderRecentActivity = () => {
-    if (!recentActivity.length) return null;
-    return (
+  // -------------------- Render Sections --------------------
+  const renderRecentActivity = () =>
+    recentActivity.length ? (
       <div>
         <h2 className="text-2xl font-semibold mb-4">🕓 Recent Activity</h2>
-        <p className="text-sm text-gray-600 mb-4">
-          The most recently updated or added courses across the platform.
-        </p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {recentActivity.map((c) => (
             <CourseCard key={c.id} course={c} />
           ))}
         </div>
       </div>
-    );
-  };
+    ) : null;
 
   const renderStudentDashboard = () => {
     if (!userProfile) return null;
@@ -287,9 +261,7 @@ export default function Dashboard() {
       <div className="space-y-12">
         {!learningPath.length ? (
           <div>
-            <h2 className="text-2xl font-semibold mb-4">
-              Personalize Your Learning
-            </h2>
+            <h2 className="text-2xl font-semibold mb-4">Personalize Your Learning</h2>
             <p className="text-sm text-gray-600 mb-4">
               Generate a learning path and we’ll suggest courses tailored to your goals.
             </p>
@@ -300,9 +272,7 @@ export default function Dashboard() {
             <div className="bg-white p-6 rounded-lg shadow">
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                 <div>
-                  <h2 className="text-2xl font-semibold mb-3">
-                    🎯 Your Learning Path
-                  </h2>
+                  <h2 className="text-2xl font-semibold mb-3">🎯 Your Learning Path</h2>
                   <div className="flex flex-wrap gap-2">
                     {learningPath.map((step, i) => (
                       <span
@@ -336,17 +306,14 @@ export default function Dashboard() {
               <div className="bg-indigo-50 p-6 rounded-lg border border-indigo-200">
                 <h3 className="text-xl font-semibold">🚀 Start Here</h3>
                 <p className="text-gray-700">
-                  Begin with:{' '}
-                  <span className="font-bold text-indigo-700">{firstStep}</span>
+                  Begin with: <span className="font-bold text-indigo-700">{firstStep}</span>
                 </p>
               </div>
             )}
 
             {suggestedCourses.length > 0 && (
               <div>
-                <h2 className="text-2xl font-semibold mb-4">
-                  📚 Courses Suggested For You
-                </h2>
+                <h2 className="text-2xl font-semibold mb-4">📚 Courses Suggested For You</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {suggestedCourses.map((c) => (
                     <CourseCard key={c.id} course={c} isEnrolled={false} />
@@ -362,7 +329,7 @@ export default function Dashboard() {
           {enrolledCourses.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {enrolledCourses.map((c) => (
-                <CourseCard key={c.id} course={c} isEnrolled={true} />
+                <CourseCard key={c.id} course={c} isEnrolled />
               ))}
             </div>
           ) : (
@@ -432,7 +399,7 @@ export default function Dashboard() {
   );
 
   // -------------------- Main Render --------------------
-  if (loading || isDataLoading)
+  if (authLoading || isDataLoading)
     return <div className="text-center mt-10">Loading Dashboard...</div>;
   if (error)
     return <div className="text-center mt-10 text-red-500">{error}</div>;
@@ -441,7 +408,9 @@ export default function Dashboard() {
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold">Dashboard</h1>
-        <p className="text-gray-600">Welcome back, {userProfile?.email}!</p>
+        <p className="text-gray-600">
+          Welcome back, {userProfile?.displayName || authUser?.displayName || userProfile?.email}!
+        </p>
       </div>
 
       {userProfile?.role === 'student' && renderStudentDashboard()}

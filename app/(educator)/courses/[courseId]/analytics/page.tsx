@@ -29,9 +29,14 @@ export default function AnalyticsPage() {
                 // 1. Fetch course details to verify ownership and get title
                 const courseDocRef = doc(db, 'courses', courseId);
                 const courseDocSnap = await getDoc(courseDocRef);
-                if (!courseDocSnap.exists() || courseDocSnap.data().instructorId !== user.uid) {
-                    throw new Error("Course not found or you do not have permission to view its analytics.");
+
+                if (
+                !courseDocSnap.exists() ||
+                !courseDocSnap.data().instructorIds?.includes(user.uid)
+                ) {
+                throw new Error("Course not found or you do not have permission to view its analytics.");
                 }
+
                 setCourse(courseDocSnap.data() as Course);
 
                 // 2. Query the 'users' collection to find all students enrolled in this course

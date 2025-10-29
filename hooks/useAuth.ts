@@ -4,8 +4,10 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
 
-// ✅ Create a merged type instead of extending Firebase's User
-export type AuthUser = User & {
+// ✅ Merged type — don't extend User (avoids TS conflicts)
+export type AuthUser = {
+  uid: string;
+  email: string | null;
   displayName: string | null;
   photoURL: string | null;
   role?: string;
@@ -23,15 +25,24 @@ const useAuth = () => {
         const unsubscribeFirestore = onSnapshot(userDocRef, (docSnap) => {
           if (docSnap.exists()) {
             const firestoreData = docSnap.data();
-            // ✅ Safely merge Auth and Firestore data
+            // ✅ Merge Firebase Auth + Firestore data safely
             setUser({
-              ...authUser,
-              displayName: firestoreData.displayName ?? authUser.displayName ?? null,
-              photoURL: firestoreData.photoURL ?? authUser.photoURL ?? null,
+              uid: authUser.uid,
+              email: authUser.email,
+              displayName:
+                firestoreData.displayName ?? authUser.displayName ?? null,
+              photoURL:
+                firestoreData.photoURL ?? authUser.photoURL ?? null, // Cloudinary or Firebase
               role: firestoreData.role ?? undefined,
             });
           } else {
-            setUser(authUser as AuthUser);
+            // Fallback to just Auth user if Firestore doc not found
+            setUser({
+              uid: authUser.uid,
+              email: authUser.email,
+              displayName: authUser.displayName,
+              photoURL: authUser.photoURL,
+            });
           }
           setLoading(false);
         });

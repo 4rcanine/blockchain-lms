@@ -2,19 +2,20 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../firebase/config'; // Adjust path
 import useAuth from '../../../hooks/useAuth'; // Adjust path
 import { useParams, useRouter } from 'next/navigation';
 
-interface Course {
-  title: string;
-  description: string;
-  tags: string[];
+// Interface for the course data
+interface Course { 
+  title: string; 
+  description: string; 
+  tags: string[]; 
+  imageUrl?: string; 
 }
-interface UserProfile {
-    enrolledCourses: string[];
-}
+// Type for the enrollment status from the subcollection
+type EnrollmentStatus = 'unenrolled' | 'pending' | 'enrolled' | 'rejected';
 
 export default function CourseDetailPage() {
   const { user } = useAuth();
@@ -23,16 +24,17 @@ export default function CourseDetailPage() {
   const courseId = params.courseId as string;
 
   const [course, setCourse] = useState<Course | null>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  // Replaced userProfile state with enrollmentStatus state
+  const [enrollmentStatus, setEnrollmentStatus] = useState<EnrollmentStatus>('unenrolled');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null); // Kept error state
 
   useEffect(() => {
     if (!courseId) return;
 
-    const fetchCourseAndUserData = async () => {
+    const fetchCourseAndEnrollmentStatus = async () => {
       try {
-        // Fetch course details
+        // 1. Fetch course details
         const courseDocRef = doc(db, 'courses', courseId);
         const courseDocSnap = await getDoc(courseDocRef);
         if (!courseDocSnap.exists()) {
@@ -41,12 +43,17 @@ export default function CourseDetailPage() {
         }
         setCourse(courseDocSnap.data() as Course);
 
-        // If user is logged in, fetch their data to check enrollment status
+        // 2. If user is logged in, check their enrollment request status
         if (user) {
-          const userDocRef = doc(db, 'users', user.uid);
-          const userDocSnap = await getDoc(userDocRef);
-          if (userDocSnap.exists()) {
-            setUserProfile(userDocSnap.data() as UserProfile);
+          const requestDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
+          const requestDocSnap = await getDoc(requestDocRef);
+          
+          // If a request document exists, set the status
+          if (requestDocSnap.exists()) {
+            setEnrollmentStatus(requestDocSnap.data().status as EnrollmentStatus);
+          } else {
+            // Otherwise, it's explicitly 'unenrolled'
+            setEnrollmentStatus('unenrolled');
           }
         }
       } catch (err) {
@@ -57,30 +64,56 @@ export default function CourseDetailPage() {
       }
     };
 
-    fetchCourseAndUserData();
+    fetchCourseAndEnrollmentStatus();
   }, [courseId, user]);
 
+  /**
+   * Submits a new 'pending' enrollment request to the course's subcollection.
+   */
   const handleEnroll = async () => {
-    if (!user || !userProfile) {
+    if (!user) {
       router.push('/login'); // Redirect to login if not authenticated
       return;
     }
+    
+    // Reference to the student's enrollment request document
+    const requestDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
 
     try {
-      const userDocRef = doc(db, 'users', user.uid);
-      // arrayUnion atomically adds an element to an array if it doesn't exist yet
-      await updateDoc(userDocRef, {
-        enrolledCourses: arrayUnion(courseId)
+      // Use setDoc (or updateDoc/setDoc with merge: true) to create/update the request
+      await setDoc(requestDocRef, {
+        status: 'pending',
+        requestedAt: serverTimestamp(),
+        studentEmail: user.email,
       });
-      // Optimistically update the UI to show enrollment
-      setUserProfile({ ...userProfile, enrolledCourses: [...userProfile.enrolledCourses, courseId] });
-    } catch (err) {
-      console.error(err);
-      setError('Failed to enroll in the course.');
+      
+      setEnrollmentStatus('pending'); // Optimistically update UI
+    } catch (error) {
+      console.error("Failed to submit enrollment request:", error);
+      setError('Failed to submit enrollment request.');
     }
   };
   
-  const isEnrolled = userProfile?.enrolledCourses?.includes(courseId);
+  /**
+   * Determines the button text and state based on the current enrollment status.
+   */
+  const getButtonState = () => {
+    switch (enrollmentStatus) {
+      case 'enrolled':
+        return { text: '✓ Enrolled', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
+      case 'pending':
+        return { text: 'Enrollment Pending', disabled: true, className: 'bg-yellow-500 cursor-not-allowed' };
+      case 'rejected':
+        // A rejected user might be allowed to re-request enrollment, depending on business rules.
+        // For simplicity, we'll keep it disabled and show the status.
+        return { text: 'Enrollment Denied', disabled: true, className: 'bg-red-500 cursor-not-allowed' };
+      default: // 'unenrolled'
+        // Changed from 'Request to Enroll' to 'Enroll'
+        return { text: 'Enroll', disabled: false, onClick: handleEnroll, className: 'bg-green-600 hover:bg-green-700' };
+    }
+  };
+
+  const buttonState = getButtonState();
 
   if (loading) return <p className="text-center mt-10">Loading Course...</p>;
   if (error) return <p className="text-center mt-10 text-red-500">{error}</p>;
@@ -99,9 +132,11 @@ export default function CourseDetailPage() {
         
         <div className="mt-8">
           {user ? (
-            <button onClick={handleEnroll} disabled={isEnrolled}
-              className={`w-full px-6 py-3 font-bold text-white rounded-lg ${isEnrolled ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}>
-              {isEnrolled ? '✓ Enrolled' : 'Enroll Now'}
+            <button 
+              onClick={buttonState.onClick} 
+              disabled={buttonState.disabled}
+              className={`w-full px-6 py-3 font-bold text-white rounded-lg ${buttonState.className}`}>
+              {buttonState.text}
             </button>
           ) : (
             <button onClick={() => router.push('/login')} className="w-full px-6 py-3 font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700">

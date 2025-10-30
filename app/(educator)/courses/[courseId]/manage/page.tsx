@@ -13,6 +13,7 @@ import {
   updateDoc,
   setDoc,
   serverTimestamp,
+  arrayUnion,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
@@ -51,6 +52,7 @@ interface Module {
   id: string;
   title: string;
   lessons: Lesson[];
+  // module documents now include a `lessons` array field holding lesson IDs
 }
 
 /* ---------------------------- AddLessonForm ----------------------------- */
@@ -85,12 +87,19 @@ const AddLessonForm = ({
         moduleId,
         'lessons'
       );
-      await addDoc(lessonsRef, {
+      const newLessonRef = await addDoc(lessonsRef, {
         title: title.trim(),
         content,
         sandboxUrl: sandboxUrl.trim() || null,
         createdAt: serverTimestamp(),
       });
+
+      // Add the new lesson ID to the parent module's `lessons` array field
+      const moduleRef = doc(db, 'courses', courseId, 'modules', moduleId);
+      await updateDoc(moduleRef, {
+        lessons: arrayUnion(newLessonRef.id),
+      });
+
       setTitle('');
       setContent('');
       setSandboxUrl('');
@@ -467,7 +476,8 @@ export default function ManageCoursePage() {
     e.preventDefault();
     if (!newModuleTitle.trim() || !courseId) return;
     try {
-      await addDoc(collection(db, 'courses', courseId, 'modules'), { title: newModuleTitle.trim(), createdAt: serverTimestamp() });
+      // create module with an empty lessons array field
+      await addDoc(collection(db, 'courses', courseId, 'modules'), { title: newModuleTitle.trim(), createdAt: serverTimestamp(), lessons: [] });
       setNewModuleTitle('');
       fetchData();
     } catch (err) {

@@ -1,3 +1,5 @@
+//app/(student)/dashboard/page.tsx
+
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -5,6 +7,7 @@ import {
   doc,
   getDoc,
   collection,
+  collectionGroup,
   query,
   where,
   getDocs,
@@ -14,7 +17,7 @@ import {
   DocumentData,
 } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
-import useAuth, { AuthUser } from '@/hooks/useAuth';
+import useAuth from '@/hooks/useAuth';
 import { db } from '@/firebase/config';
 import Link from 'next/link';
 import LearningPathGenerator from '@/components/LearningPathGenerator';
@@ -33,11 +36,12 @@ interface Course {
   id: string;
   title: string;
   description: string;
-  tags: string[];
+  tags?: string[];
   imageUrl?: string;
   instructorId?: string;
   createdAt?: any;
   updatedAt?: any;
+  progress?: number;
   [k: string]: any;
 }
 
@@ -58,6 +62,13 @@ async function fetchDocsByIds(
   return results;
 }
 
+// ---------------------------- ProgressBar ------------------------
+const ProgressBar = ({ progress }: { progress: number }) => (
+  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-2">
+    <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${progress}%` }}></div>
+  </div>
+);
+
 // ---------------------------- CourseCard ------------------------
 const CourseCard = ({
   course,
@@ -70,6 +81,7 @@ const CourseCard = ({
 }) => {
   let linkHref = `/courses/${course.id}`;
   let linkText = 'View & Enroll →';
+
   if (isEducator) {
     linkHref = `/courses/${course.id}/manage`;
     linkText = 'Manage Course →';
@@ -91,14 +103,42 @@ const CourseCard = ({
           <span className="text-gray-400">No Image</span>
         </div>
       )}
+
       <div className="p-4 flex flex-col flex-grow">
         <h3 className="font-bold text-lg mb-2">{course.title}</h3>
+
+        {course.tags && course.tags.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {course.tags.map((tag: string) => (
+              <Link
+                href={`/tags/${encodeURIComponent(tag)}`}
+                key={tag}
+                className="px-2 py-1 text-xs font-semibold text-indigo-800 bg-indigo-100 rounded-full hover:bg-indigo-200"
+              >
+                {tag}
+              </Link>
+            ))}
+          </div>
+        )}
+
         <p className="text-sm text-gray-600 mb-4 flex-grow">
           {course.description?.substring(0, 80)}...
         </p>
+
+        {/* --- NEW Progress Bar --- */}
+        {isEnrolled && typeof course.progress === 'number' && (
+          <div className="mb-2">
+            <div className="flex justify-between items-center text-xs text-gray-500">
+              <span>Progress</span>
+              <span>{course.progress}%</span>
+            </div>
+            <ProgressBar progress={course.progress} />
+          </div>
+        )}
+
         <Link
           href={linkHref}
-          className="font-semibold text-sm text-indigo-600 hover:underline mt-2"
+          className="font-semibold text-sm text-indigo-600 hover:underline mt-auto"
         >
           {linkText}
         </Link>
@@ -123,7 +163,7 @@ export default function Dashboard() {
 
   // ---------------- Fetch Dashboard Data ----------------
   useEffect(() => {
-    const fetchAllData = async () => {
+    const fetchDashboardData = async () => {
       if (!authUser) {
         if (!authLoading) router.push('/login');
         return;
@@ -132,21 +172,53 @@ export default function Dashboard() {
       setIsDataLoading(true);
       try {
         const userDocRef = doc(db, 'users', authUser.uid);
-        const userDocSnap = await getDoc(userDocRef);
-        if (!userDocSnap.exists()) throw new Error('User profile not found.');
-        const profileData = userDocSnap.data() as UserProfile;
-        setUserProfile(profileData);
+        const userSnap = await getDoc(userDocRef);
+        if (!userSnap.exists()) throw new Error('User profile not found.');
+        const profile = userSnap.data() as UserProfile;
+        setUserProfile(profile);
 
-        // Fetch enrolled or created courses
-        if (profileData.role === 'student') {
-          if (profileData.enrolledCourses?.length) {
-            const enrolledDocs = await fetchDocsByIds(
-              collection(db, 'courses'),
-              profileData.enrolledCourses
+        // --- Student Enrolled Courses with Progress ---
+        if (profile.role === 'student') {
+          const reqQuery = query(
+            collectionGroup(db, 'enrollmentRequests'),
+            where('status', '==', 'enrolled'),
+            where('studentId', '==', authUser.uid)
+          );
+          const enrolledSnap = await getDocs(reqQuery);
+
+          if (!enrolledSnap.empty) {
+            const courseIds = enrolledSnap.docs.map((doc) => doc.ref.parent.parent!.id);
+            const progressMap = new Map(
+              enrolledSnap.docs.map((doc) => [
+                doc.ref.parent.parent!.id,
+                doc.data().completedItems?.length || 0,
+              ])
             );
-            setEnrolledCourses(enrolledDocs as Course[]);
-          } else setEnrolledCourses([]);
-        } else if (profileData.role === 'educator') {
+
+            const coursesSnap = await getDocs(
+              query(collection(db, 'courses'), where('__name__', 'in', courseIds))
+            );
+
+            const coursesList: Course[] = [];
+            for (const courseDoc of coursesSnap.docs) {
+              const cData = { id: courseDoc.id, ...courseDoc.data() } as Course;
+              const modulesSnap = await getDocs(collection(db, 'courses', courseDoc.id, 'modules'));
+              let totalLessons = 0;
+              modulesSnap.forEach((mod) => {
+                totalLessons += mod.data().lessons?.length || 0;
+              });
+              const completed = progressMap.get(courseDoc.id) || 0;
+              cData.progress = totalLessons > 0 ? Math.round((completed / totalLessons) * 100) : 0;
+              coursesList.push(cData);
+            }
+            setEnrolledCourses(coursesList);
+          } else {
+            setEnrolledCourses([]);
+          }
+        }
+
+        // --- Educator Created Courses ---
+        if (profile.role === 'educator') {
           const createdQ = query(
             collection(db, 'courses'),
             where('instructorIds', 'array-contains', authUser.uid)
@@ -157,7 +229,7 @@ export default function Dashboard() {
           );
         }
 
-        // Fetch recent activity
+        // --- Recent Activity ---
         const recentQ = query(collection(db, 'courses'), orderBy('updatedAt', 'desc'), limit(5));
         const recentSnap = await getDocs(recentQ);
         setRecentActivity(recentSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[]);
@@ -169,30 +241,27 @@ export default function Dashboard() {
       }
     };
 
-    fetchAllData();
+    fetchDashboardData();
   }, [authUser, authLoading, router]);
 
-  // ---------------- Save Learning Path ----------------
+  // ---------------- Save & Change Learning Path ----------------
   const handleSavePath = async (path: string[]) => {
     if (!authUser || !userProfile) return;
     try {
-      const userDocRef = doc(db, 'users', authUser.uid);
-      await updateDoc(userDocRef, { learningPath: path });
+      await updateDoc(doc(db, 'users', authUser.uid), { learningPath: path });
       setUserProfile({ ...userProfile, learningPath: path });
     } catch (err) {
       console.error('Failed to save learning path:', err);
     }
   };
 
-  // ---------------- Change Learning Path ----------------
   const handleChangeLearningPath = async () => {
     if (!authUser || !userProfile) return;
     if (!confirm('Are you sure you want to change your learning path?')) return;
 
     try {
       setChangingPath(true);
-      const userDocRef = doc(db, 'users', authUser.uid);
-      await updateDoc(userDocRef, { learningPath: [] });
+      await updateDoc(doc(db, 'users', authUser.uid), { learningPath: [] });
       setUserProfile({ ...userProfile, learningPath: [] });
     } catch (err) {
       console.error('Failed to reset learning path:', err);
@@ -208,18 +277,13 @@ export default function Dashboard() {
         setSuggestedCourses([]);
         return;
       }
-
       try {
-        const snapshot = await getDocs(collection(db, 'courses'));
-        const allCourses = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
-
-        const scoredCourses = allCourses
+        const allCoursesSnap = await getDocs(collection(db, 'courses'));
+        const allCourses = allCoursesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
+        const scored = allCourses
           .map((c) => {
             const tags = c.tags || [];
-            let score = 0;
-            tags.forEach((t) => {
-              if (userProfile.learningPath!.includes(t)) score++;
-            });
+            const score = tags.filter((t) => userProfile.learningPath!.includes(t)).length;
             return { ...c, score };
           })
           .filter(
@@ -229,17 +293,15 @@ export default function Dashboard() {
           )
           .sort((a, b) => b.score - a.score)
           .slice(0, 3);
-
-        setSuggestedCourses(scoredCourses);
+        setSuggestedCourses(scored);
       } catch (err) {
         console.error('Failed to generate suggestions:', err);
       }
     };
-
     generateSuggestions();
   }, [userProfile?.learningPath, userProfile?.enrolledCourses]);
 
-  // -------------------- Render Sections --------------------
+  // ---------------- Render Sections ----------------
   const renderRecentActivity = () =>
     recentActivity.length ? (
       <div>

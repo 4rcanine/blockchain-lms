@@ -14,6 +14,8 @@ import {
   setDoc,
   serverTimestamp,
   arrayUnion,
+  deleteDoc,// <-- ADDED new shit
+  writeBatch,// <-- ADDED (For efficiency/safety) new shit
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
@@ -414,6 +416,77 @@ export default function ManageCoursePage() {
   const [error, setError] = useState<string | null>(null);
   const [addingLessonToModuleId, setAddingLessonToModuleId] = useState<string | null>(null);
   const [addingQuizToLessonId, setAddingQuizToLessonId] = useState<string | null>(null);
+// new shit here
+  const deleteCourseAndCollections = async () => {
+    if (!courseId) return;
+
+    if (!window.confirm("ARE YOU ABSOLUTELY SURE? Deleting this course will permanently remove all modules, lessons, quizzes, Q&A, and enrollments.")) {
+        return;
+    }
+
+    setLoading(true); // Re-use loading state during deletion
+
+    try {
+        const batch = writeBatch(db);
+        const courseRef = doc(db, 'courses', courseId);
+        
+        // --- 1. Delete Subcollections (Modules, Lessons, Q&A, Quizzes) ---
+        
+        // Modules Collection
+        const modulesSnapshot = await getDocs(collection(courseRef, 'modules'));
+        for (const moduleDoc of modulesSnapshot.docs) {
+            const moduleRef = doc(courseRef, 'modules', moduleDoc.id);
+
+            // Lessons Collection (nested inside module)
+            const lessonsSnapshot = await getDocs(collection(moduleRef, 'lessons'));
+            for (const lessonDoc of lessonsSnapshot.docs) {
+                const lessonRef = doc(moduleRef, 'lessons', lessonDoc.id);
+
+                // Q&A Subcollection (nested inside lesson)
+                const qandaSnapshot = await getDocs(collection(lessonRef, 'qanda'));
+                qandaSnapshot.docs.forEach(qDoc => {
+                    batch.delete(doc(lessonRef, 'qanda', qDoc.id));
+                });
+
+                // Quizzes Subcollection (nested inside lesson)
+                const quizzesSnapshot = await getDocs(collection(lessonRef, 'quizzes'));
+                quizzesSnapshot.docs.forEach(quizDoc => {
+                    batch.delete(doc(lessonRef, 'quizzes', quizDoc.id));
+                });
+                
+                // Delete the Lesson document
+                batch.delete(lessonRef); 
+            }
+            
+            // Delete the Module document
+            batch.delete(moduleRef);
+        }
+        
+        // --- 2. Delete Other Top-Level Related Data ---
+        
+        // If you have an 'enrollments' collection for this course:
+        const enrollmentsSnapshot = await getDocs(collection(courseRef, 'enrollments'));
+        enrollmentsSnapshot.docs.forEach(eDoc => {
+             batch.delete(doc(courseRef, 'enrollments', eDoc.id));
+        });
+
+        // --- 3. Delete the Course Document ---
+        batch.delete(courseRef); 
+        
+        // --- 4. Commit All Changes ---
+        await batch.commit();
+
+        // Success: Redirect the user away from the deleted course page
+        alert(`Course "${course?.title || 'Untitled'}" and all related data deleted successfully.`);
+        window.location.href = '/educator/courses/my-courses'; // Use window.location or router.replace
+
+    } catch (err) {
+        console.error("Critical Deletion Error:", err);
+        setError("Failed to delete the course. Check console for details.");
+    } finally {
+        setLoading(false);
+    }
+};// end new shit
 
   const fetchData = async () => {
     if (!courseId) return;
@@ -496,13 +569,22 @@ export default function ManageCoursePage() {
           <h2 className="text-3xl font-bold">{course?.title || 'Untitled Course'}</h2>
         </div>
         <div className="flex gap-2">
-          <span className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md shadow-sm">Content Editor</span>
+          {/*<span className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md shadow-sm">Content Editor</span>*/}
            <Link href={`/courses/${courseId}/enrollments`} className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md">
             Enrollments
            </Link>
           <Link href={`/courses/${courseId}/analytics`} className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md">
             Analytics
           </Link>
+          {/* new shit */}
+          <button 
+            onClick={deleteCourseAndCollections}
+            disabled={loading} // Use the loading state to disable during fetch/delete
+            className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-md shadow-sm hover:bg-red-700 disabled:opacity-50"
+          >
+            {loading ? 'Processing...' : 'Delete Course'}
+          </button>
+          {/* end of new shit*/}
         </div>
       </div>
 

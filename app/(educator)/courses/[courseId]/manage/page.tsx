@@ -14,8 +14,8 @@ import {
   setDoc,
   serverTimestamp,
   arrayUnion,
-  deleteDoc,// <-- ADDED new shit
-  writeBatch,// <-- ADDED (For efficiency/safety) new shit
+  deleteDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
@@ -40,13 +40,15 @@ interface Quiz {
   id: string;
   title: string;
   questions: Question[];
+  dueDate?: any;
+  createdAt?: any;
 }
 interface Lesson {
   id: string;
   title: string;
   content: string;
   qanda?: QandA[];
-  quiz?: Quiz;
+  quiz?: Quiz | null;
   sandboxUrl?: string;
   createdAt?: any;
 }
@@ -54,7 +56,6 @@ interface Module {
   id: string;
   title: string;
   lessons: Lesson[];
-  // module documents now include a `lessons` array field holding lesson IDs
 }
 
 /* ---------------------------- AddLessonForm ----------------------------- */
@@ -96,7 +97,6 @@ const AddLessonForm = ({
         createdAt: serverTimestamp(),
       });
 
-      // Add the new lesson ID to the parent module's `lessons` array field
       const moduleRef = doc(db, 'courses', courseId, 'modules', moduleId);
       await updateDoc(moduleRef, {
         lessons: arrayUnion(newLessonRef.id),
@@ -168,7 +168,6 @@ const AddLessonForm = ({
 };
 
 /* ------------------------- AnswerQuestionForm -------------------------- */
-/* This component returns JSX and updates the qanda item's answerText */
 const AnswerQuestionForm = ({
   question,
   courseId,
@@ -228,8 +227,7 @@ const AnswerQuestionForm = ({
   );
 };
 
-/* ---------------------------- AddQuizForm ------------------------------ */
-/* Provides a simple UI to add quiz title, questions, options, and mark correct option */
+/* ---------------------------- AddQuizForm (updated with dueDate) ------------------------------ */
 const AddQuizForm = ({
   lesson,
   courseId,
@@ -244,55 +242,32 @@ const AddQuizForm = ({
   onCancel: () => void;
 }) => {
   const [title, setTitle] = useState('');
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [newQuestionText, setNewQuestionText] = useState('');
-  const [newOptions, setNewOptions] = useState<string[]>(['', '']);
-  const [newCorrectIndex, setNewCorrectIndex] = useState<number>(0);
-  const [saving, setSaving] = useState(false);
+  const [dueDate, setDueDate] = useState('');
+  const [questions, setQuestions] = useState<Question[]>([{ questionText: '', options: ['', '', '', ''], correctAnswerIndex: 0 }]);
   const [error, setError] = useState('');
 
-  const addQuestionToList = () => {
-    setError('');
-    if (!newQuestionText.trim()) {
-      setError('Question text is required.');
-      return;
-    }
-    const filteredOptions = newOptions.map((o) => o.trim()).filter(Boolean);
-    if (filteredOptions.length < 2) {
-      setError('At least two options are required.');
-      return;
-    }
-    if (newCorrectIndex < 0 || newCorrectIndex >= filteredOptions.length) {
-      setError('Select a valid correct option.');
-      return;
-    }
-    setQuestions((prev) => [
-      ...prev,
-      {
-        questionText: newQuestionText.trim(),
-        options: filteredOptions,
-        correctAnswerIndex: newCorrectIndex,
-      },
-    ]);
-    // reset
-    setNewQuestionText('');
-    setNewOptions(['', '']);
-    setNewCorrectIndex(0);
+  const handleQuestionChange = (index: number, field: keyof Question, value: any) => {
+    const updated = [...questions];
+    (updated[index] as any)[field] = value;
+    setQuestions(updated);
   };
 
-  const handleSaveQuiz = async () => {
+  const addQuestion = () => {
+    setQuestions([...questions, { questionText: '', options: ['', '', '', ''], correctAnswerIndex: 0 }]);
+  };
+
+  // -------------------- UPDATED handleSubmit --------------------
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || !dueDate) {
+      setError('Please provide a title and a due date for the quiz.');
+      return;
+    }
     setError('');
-    if (!title.trim()) {
-      setError('Quiz title is required.');
-      return;
-    }
-    if (questions.length === 0) {
-      setError('Add at least one question.');
-      return;
-    }
-    setSaving(true);
+
     try {
-      const quizRef = doc(
+      // 1) create a new quiz doc under quizzes collection
+      const quizzesCollectionRef = collection(
         db,
         'courses',
         courseId,
@@ -300,107 +275,87 @@ const AddQuizForm = ({
         moduleId,
         'lessons',
         lesson.id,
-        'quizzes',
-        'quiz-data'
+        'quizzes'
       );
-      const quizData = { title: title.trim(), questions };
-      await setDoc(quizRef, quizData);
+
+      const newQuizRef = await addDoc(quizzesCollectionRef, {
+        createdAt: serverTimestamp(),
+      });
+
+      // 2) inside that quiz doc, create quiz-data collection, document 'main'
+      const quizDataCollectionRef = collection(newQuizRef, 'quiz-data');
+      const mainQuizDataRef = doc(quizDataCollectionRef, 'main');
+
+      await setDoc(mainQuizDataRef, {
+        title,
+        questions,
+        dueDate: new Date(dueDate),
+        courseId,
+        createdAt: serverTimestamp(),
+      });
+
+      console.log('✅ Quiz created at path:', mainQuizDataRef.path);
       onQuizAdded();
     } catch (err) {
-      console.error(err);
+      console.error('❌ Failed to create quiz:', err);
       setError('Failed to save quiz.');
-    } finally {
-      setSaving(false);
     }
   };
-
-  const updateOption = (idx: number, value: string) => {
-    setNewOptions((prev) => prev.map((o, i) => (i === idx ? value : o)));
-  };
-
-  const addOptionField = () => setNewOptions((prev) => [...prev, '']);
-  const removeOptionField = (idx: number) => setNewOptions((prev) => prev.filter((_, i) => i !== idx));
+  // ----------------------------------------------------------------
 
   return (
-    <div className="p-4 mt-4 bg-gray-100 rounded-md">
-      <h3 className="font-semibold mb-2">Create Quiz for: {lesson.title}</h3>
-
-      <input
-        type="text"
-        placeholder="Quiz Title"
-        className="w-full p-2 border rounded mb-2"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-      />
-
-      <div className="mb-3">
-        <h4 className="font-medium">Add a Question</h4>
-        <textarea
-          placeholder="Question text"
-          className="w-full p-2 border rounded mb-2"
-          value={newQuestionText}
-          onChange={(e) => setNewQuestionText(e.target.value)}
-          rows={3}
-        />
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Options</p>
-          {newOptions.map((opt, idx) => (
-            <div key={idx} className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="correctOption"
-                checked={newCorrectIndex === idx}
-                onChange={() => setNewCorrectIndex(idx)}
-              />
-              <input
-                type="text"
-                placeholder={`Option ${idx + 1}`}
-                className="flex-1 p-2 border rounded"
-                value={opt}
-                onChange={(e) => updateOption(idx, e.target.value)}
-              />
-              {newOptions.length > 2 && (
-                <button type="button" onClick={() => removeOptionField(idx)} className="text-xs px-2 py-1 bg-red-200 rounded">
-                  Remove
-                </button>
-              )}
-            </div>
-          ))}
-          <div className="mt-2">
-            <button type="button" onClick={addOptionField} className="text-xs px-2 py-1 bg-indigo-100 rounded mr-2">Add Option</button>
-            <button type="button" onClick={addQuestionToList} className="text-xs px-2 py-1 bg-green-600 text-white rounded">
-              Add Question to Quiz
-            </button>
+    <div className="my-4 p-4 bg-blue-50 border-2 border-dashed border-blue-300 rounded-md">
+      <h4 className="font-semibold mb-4 text-blue-800">Add a Quiz to this Lesson</h4>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Quiz Title</label>
+            <input type="text" placeholder="Quiz Title" value={title} onChange={e => setTitle(e.target.value)} className="w-full p-2 mt-1 border rounded-md font-bold" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Due Date</label>
+            <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full p-2 mt-1 border rounded-md" />
           </div>
         </div>
-      </div>
-
-      {questions.length > 0 && (
-        <div className="mb-3">
-          <h4 className="font-medium">Questions in Quiz</h4>
-          <ul className="space-y-2">
-            {questions.map((q, i) => (
-              <li key={i} className="p-2 bg-white rounded border">
-                <p className="font-semibold">{i + 1}. {q.questionText}</p>
-                <ol className="list-decimal ml-6">
-                  {q.options.map((o, oi) => (
-                    <li key={oi} className={q.correctAnswerIndex === oi ? 'font-bold' : ''}>{o}</li>
-                  ))}
-                </ol>
-              </li>
+        {questions.map((q, index) => (
+          <div key={index} className="p-3 border rounded bg-white">
+            <input
+              type="text"
+              placeholder="Question text"
+              value={q.questionText}
+              onChange={e => handleQuestionChange(index, 'questionText', e.target.value)}
+              className="w-full p-2 border rounded mb-2"
+            />
+            {q.options.map((opt, i) => (
+              <div key={i} className="flex items-center gap-2 mb-1">
+                <input
+                  type="radio"
+                  name={`correct-${index}`}
+                  checked={q.correctAnswerIndex === i}
+                  onChange={() => handleQuestionChange(index, 'correctAnswerIndex', i)}
+                />
+                <input
+                  type="text"
+                  placeholder={`Option ${i + 1}`}
+                  value={opt}
+                  onChange={e => {
+                    const newOptions = [...q.options];
+                    newOptions[i] = e.target.value;
+                    handleQuestionChange(index, 'options', newOptions);
+                  }}
+                  className="flex-1 p-2 border rounded"
+                />
+              </div>
             ))}
-          </ul>
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <button type="button" onClick={addQuestion} className="px-3 py-1 text-xs bg-indigo-100 rounded">Add Question</button>
+          <button type="submit" className="px-3 py-1 text-xs bg-blue-600 text-white rounded">Save Quiz</button>
+          <button type="button" onClick={onCancel} className="px-3 py-1 text-xs bg-gray-300 rounded">Cancel</button>
         </div>
-      )}
-
-      {error && <p className="text-red-600 text-sm mb-2">{error}</p>}
-
-      <div className="flex gap-2">
-        <button onClick={handleSaveQuiz} disabled={saving} className="px-3 py-1 bg-blue-600 text-white rounded">
-          {saving ? 'Saving...' : 'Save Quiz'}
-        </button>
-        <button onClick={onCancel} className="px-3 py-1 bg-gray-300 rounded">Cancel</button>
-      </div>
+        {error && <p className="text-red-500 text-sm">{error}</p>}
+      </form>
     </div>
   );
 };
@@ -416,77 +371,64 @@ export default function ManageCoursePage() {
   const [error, setError] = useState<string | null>(null);
   const [addingLessonToModuleId, setAddingLessonToModuleId] = useState<string | null>(null);
   const [addingQuizToLessonId, setAddingQuizToLessonId] = useState<string | null>(null);
-// new shit here
+
   const deleteCourseAndCollections = async () => {
     if (!courseId) return;
-
-    if (!window.confirm("ARE YOU ABSOLUTELY SURE? Deleting this course will permanently remove all modules, lessons, quizzes, Q&A, and enrollments.")) {
-        return;
+    if (!window.confirm('ARE YOU ABSOLUTELY SURE? Deleting this course will permanently remove all modules, lessons, quizzes, Q&A, and enrollments.')) {
+      return;
     }
-
-    setLoading(true); // Re-use loading state during deletion
-
+    setLoading(true);
     try {
-        const batch = writeBatch(db);
-        const courseRef = doc(db, 'courses', courseId);
-        
-        // --- 1. Delete Subcollections (Modules, Lessons, Q&A, Quizzes) ---
-        
-        // Modules Collection
-        const modulesSnapshot = await getDocs(collection(courseRef, 'modules'));
-        for (const moduleDoc of modulesSnapshot.docs) {
-            const moduleRef = doc(courseRef, 'modules', moduleDoc.id);
+      const batch = writeBatch(db);
+      const courseRef = doc(db, 'courses', courseId);
+      const modulesSnapshot = await getDocs(collection(courseRef, 'modules'));
 
-            // Lessons Collection (nested inside module)
-            const lessonsSnapshot = await getDocs(collection(moduleRef, 'lessons'));
-            for (const lessonDoc of lessonsSnapshot.docs) {
-                const lessonRef = doc(moduleRef, 'lessons', lessonDoc.id);
+      for (const moduleDoc of modulesSnapshot.docs) {
+        const moduleRef = doc(courseRef, 'modules', moduleDoc.id);
+        const lessonsSnapshot = await getDocs(collection(moduleRef, 'lessons'));
 
-                // Q&A Subcollection (nested inside lesson)
-                const qandaSnapshot = await getDocs(collection(lessonRef, 'qanda'));
-                qandaSnapshot.docs.forEach(qDoc => {
-                    batch.delete(doc(lessonRef, 'qanda', qDoc.id));
-                });
+        for (const lessonDoc of lessonsSnapshot.docs) {
+          const lessonRef = doc(moduleRef, 'lessons', lessonDoc.id);
 
-                // Quizzes Subcollection (nested inside lesson)
-                const quizzesSnapshot = await getDocs(collection(lessonRef, 'quizzes'));
-                quizzesSnapshot.docs.forEach(quizDoc => {
-                    batch.delete(doc(lessonRef, 'quizzes', quizDoc.id));
-                });
-                
-                // Delete the Lesson document
-                batch.delete(lessonRef); 
-            }
-            
-            // Delete the Module document
-            batch.delete(moduleRef);
+          // delete qanda docs
+          const qandaSnapshot = await getDocs(collection(lessonRef, 'qanda'));
+          qandaSnapshot.docs.forEach((qDoc) => batch.delete(doc(lessonRef, 'qanda', qDoc.id)));
+
+          // delete quizzes and nested quiz-data docs
+          const quizzesSnapshot = await getDocs(collection(lessonRef, 'quizzes'));
+          for (const quizDoc of quizzesSnapshot.docs) {
+            // delete any docs inside quizzes/{quizId}/quiz-data
+            const quizDataSnapshot = await getDocs(collection(quizDoc.ref, 'quiz-data'));
+            quizDataSnapshot.docs.forEach((qd) => batch.delete(doc(quizDoc.ref, 'quiz-data', qd.id)));
+
+            // delete the quiz document itself
+            batch.delete(doc(lessonRef, 'quizzes', quizDoc.id));
+          }
+
+          // delete lesson doc
+          batch.delete(lessonRef);
         }
-        
-        // --- 2. Delete Other Top-Level Related Data ---
-        
-        // If you have an 'enrollments' collection for this course:
-        const enrollmentsSnapshot = await getDocs(collection(courseRef, 'enrollments'));
-        enrollmentsSnapshot.docs.forEach(eDoc => {
-             batch.delete(doc(courseRef, 'enrollments', eDoc.id));
-        });
 
-        // --- 3. Delete the Course Document ---
-        batch.delete(courseRef); 
-        
-        // --- 4. Commit All Changes ---
-        await batch.commit();
+        // delete module doc
+        batch.delete(moduleRef);
+      }
 
-        // Success: Redirect the user away from the deleted course page
-        alert(`Course "${course?.title || 'Untitled'}" and all related data deleted successfully.`);
-        window.location.href = '/educator/courses/my-courses'; // Use window.location or router.replace
+      const enrollmentsSnapshot = await getDocs(collection(courseRef, 'enrollments'));
+      enrollmentsSnapshot.docs.forEach((eDoc) => batch.delete(doc(courseRef, 'enrollments', eDoc.id)));
 
+      // delete course doc
+      batch.delete(courseRef);
+
+      await batch.commit();
+      alert(`Course "${course?.title || 'Untitled'}" deleted successfully.`);
+      window.location.href = '/educator/courses/my-courses';
     } catch (err) {
-        console.error("Critical Deletion Error:", err);
-        setError("Failed to delete the course. Check console for details.");
+      console.error('Critical Deletion Error:', err);
+      setError('Failed to delete the course.');
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
-};// end new shit
+  };
 
   const fetchData = async () => {
     if (!courseId) return;
@@ -506,18 +448,48 @@ export default function ManageCoursePage() {
             lessonsSnapshot.docs.map(async (lessonDoc) => {
               const lessonData = lessonDoc.data() as Omit<Lesson, 'id' | 'qanda' | 'quiz'>;
 
+              // q&a
               const qandaSnapshot = await getDocs(query(collection(db, 'courses', courseId, 'modules', moduleDoc.id, 'lessons', lessonDoc.id, 'qanda'), orderBy('askedAt')));
-              const qandaList = qandaSnapshot.docs.map(qDoc => ({ id: qDoc.id, ...qDoc.data() })) as QandA[];
+              const qandaList = qandaSnapshot.docs.map((qDoc) => ({ id: qDoc.id, ...qDoc.data() })) as QandA[];
 
-              const quizDocRef = doc(db, 'courses', courseId, 'modules', moduleDoc.id, 'lessons', lessonDoc.id, 'quizzes', 'quiz-data');
-              const quizDocSnap = await getDoc(quizDocRef);
-              const quizData = quizDocSnap.exists() ? ({ id: quizDocSnap.id, ...quizDocSnap.data() } as Quiz) : undefined;
+              // ---- NEW: fetch quizzes collection and look for quiz-data/main documents ----
+              const quizzesCollectionRef = collection(db, 'courses', courseId, 'modules', moduleDoc.id, 'lessons', lessonDoc.id, 'quizzes');
+              const quizzesSnapshot = await getDocs(quizzesCollectionRef);
+
+              let selectedQuiz: Quiz | undefined = undefined;
+              const quizCandidates: Quiz[] = [];
+
+              for (const quizDoc of quizzesSnapshot.docs) {
+                // quizDoc.ref points to the quiz document (e.g. quizzes/{quizId})
+                const quizDataDocRef = doc(quizDoc.ref, 'quiz-data', 'main');
+                const quizDataSnap = await getDoc(quizDataDocRef);
+                if (quizDataSnap.exists()) {
+                  const qData = quizDataSnap.data() as any;
+                  quizCandidates.push({
+                    id: quizDoc.id,
+                    title: qData.title,
+                    questions: qData.questions || [],
+                    dueDate: qData.dueDate,
+                    createdAt: qData.createdAt,
+                  } as Quiz);
+                }
+              }
+
+              // If multiple quizzes exist, pick the most recent by createdAt if available
+              if (quizCandidates.length > 0) {
+                quizCandidates.sort((a, b) => {
+                  const ta = a.createdAt ? (a.createdAt.seconds ?? 0) : 0;
+                  const tb = b.createdAt ? (b.createdAt.seconds ?? 0) : 0;
+                  return tb - ta;
+                });
+                selectedQuiz = quizCandidates[0];
+              }
 
               return {
                 id: lessonDoc.id,
                 ...lessonData,
                 qanda: qandaList,
-                quiz: quizData,
+                quiz: selectedQuiz,
               } as Lesson;
             })
           );
@@ -542,14 +514,12 @@ export default function ManageCoursePage() {
 
   useEffect(() => {
     fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId]);
 
   const handleAddModule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newModuleTitle.trim() || !courseId) return;
     try {
-      // create module with an empty lessons array field
       await addDoc(collection(db, 'courses', courseId, 'modules'), { title: newModuleTitle.trim(), createdAt: serverTimestamp(), lessons: [] });
       setNewModuleTitle('');
       fetchData();
@@ -569,122 +539,201 @@ export default function ManageCoursePage() {
           <h2 className="text-3xl font-bold">{course?.title || 'Untitled Course'}</h2>
         </div>
         <div className="flex gap-2">
-          {/*<span className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md shadow-sm">Content Editor</span>*/}
-           <Link href={`/courses/${courseId}/enrollments`} className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md">
+          <Link href={`/courses/${courseId}/enrollments`} className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md">
             Enrollments
-           </Link>
-          <Link href={`/courses/${courseId}/analytics`} className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md">
+          </Link>
+          <Link
+            href={`/courses/${courseId}/analytics`}
+            className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md"
+          >
             Analytics
           </Link>
-          {/* new shit */}
-          <button 
+          <button
             onClick={deleteCourseAndCollections}
-            disabled={loading} // Use the loading state to disable during fetch/delete
-            className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-md shadow-sm hover:bg-red-700 disabled:opacity-50"
+            className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-md"
           >
-            {loading ? 'Processing...' : 'Delete Course'}
+            Delete Course
           </button>
-          {/* end of new shit*/}
         </div>
       </div>
 
-      <div className="mb-6 p-4 bg-white shadow rounded">
-        <h3 className="text-lg font-semibold mb-2">Create New Module</h3>
-        <form onSubmit={handleAddModule} className="flex gap-4">
-          <input
-            type="text"
-            value={newModuleTitle}
-            onChange={(e) => setNewModuleTitle(e.target.value)}
-            placeholder="e.g., Week 1: Introduction"
-            className="flex-1 p-2 border rounded"
-          />
-          <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded">Add Module</button>
-        </form>
-      </div>
+      {/* MODULE CREATION */}
+      <form onSubmit={handleAddModule} className="flex items-center gap-2 mb-6">
+        <input
+          type="text"
+          placeholder="New Module Title"
+          value={newModuleTitle}
+          onChange={(e) => setNewModuleTitle(e.target.value)}
+          className="flex-grow p-2 border rounded-md"
+        />
+        <button
+          type="submit"
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+        >
+          Add Module
+        </button>
+      </form>
 
-      {/* Modules List */}
-      <div className="space-y-6">
-        {modules.length === 0 && <p className="text-sm text-gray-500">No modules yet.</p>}
-
-        {modules.map((mod) => (
-          <div key={mod.id} className="p-4 bg-white border rounded shadow-sm">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="font-bold text-xl">{mod.title}</p>
-              </div>
-              <div>
-                <button
-                  onClick={() => setAddingLessonToModuleId(addingLessonToModuleId === mod.id ? null : mod.id)}
-                  className="text-sm font-medium text-indigo-600 hover:underline"
-                >
-                  {addingLessonToModuleId === mod.id ? 'Cancel' : '+ Add Lesson'}
-                </button>
-              </div>
+      {/* MODULES DISPLAY */}
+      <div className="space-y-10">
+        {modules.length === 0 && (
+          <p className="text-gray-500 italic">No modules yet. Add one above to begin.</p>
+        )}
+        {modules.map((module) => (
+          <div key={module.id} className="p-6 bg-white border rounded-lg shadow-sm">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-2xl font-bold">{module.title}</h3>
+              <button
+                onClick={() =>
+                  setAddingLessonToModuleId(
+                    addingLessonToModuleId === module.id ? null : module.id
+                  )
+                }
+                className="px-3 py-1 text-sm font-semibold bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+              >
+                {addingLessonToModuleId === module.id
+                  ? 'Cancel'
+                  : 'Add Lesson'}
+              </button>
             </div>
 
-            {addingLessonToModuleId === mod.id && (
-              <AddLessonForm moduleId={mod.id} courseId={courseId} onLessonAdded={() => { setAddingLessonToModuleId(null); fetchData(); }} />
+            {/* ADD LESSON FORM */}
+            {addingLessonToModuleId === module.id && (
+              <AddLessonForm
+                moduleId={module.id}
+                courseId={courseId}
+                onLessonAdded={fetchData}
+              />
             )}
 
-            <div className="mt-4">
-              {mod.lessons.length === 0 ? (
-                <p className="ml-4 text-sm text-gray-500 italic">No lessons in this module yet.</p>
-              ) : (
-                mod.lessons.map((lesson) => (
-                  <div key={lesson.id} className="ml-4 pl-4 border-l-2 py-3">
-                    <div className="flex justify-between items-start gap-4">
-                      <div>
-                        <h4 className="font-semibold">{lesson.title}</h4>
-                        <p className="text-sm text-gray-600 mt-1 line-clamp-3">{lesson.content || '— No content —'}</p>
-                        {lesson.sandboxUrl && <p className="text-sm text-purple-600 font-bold mt-2">✓ Interactive Lab Added</p>}
-                        {lesson.quiz && <p className="text-sm text-green-600 font-bold mt-1">✓ Quiz: {lesson.quiz.title}</p>}
-                      </div>
-
-                      <div className="flex flex-col items-end gap-2">
-                        {!lesson.quiz && (
-                          <button
-                            onClick={() => setAddingQuizToLessonId(addingQuizToLessonId === lesson.id ? null : lesson.id)}
-                            className="text-xs font-bold text-blue-600 hover:underline"
-                          >
-                            {addingQuizToLessonId === lesson.id ? 'Cancel Quiz' : '+ Add Quiz'}
-                          </button>
-                        )}
-                      </div>
+            {/* LESSONS DISPLAY */}
+            {module.lessons.length === 0 ? (
+              <p className="text-gray-500 italic">No lessons in this module.</p>
+            ) : (
+              <div className="space-y-6">
+                {module.lessons.map((lesson) => (
+                  <div
+                    key={lesson.id}
+                    className="p-4 border-l-4 border-indigo-400 bg-gray-50 rounded"
+                  >
+                    <div className="flex justify-between items-center">
+                      <h4 className="font-semibold text-lg">{lesson.title}</h4>
+                      <button
+                        onClick={() =>
+                          setAddingQuizToLessonId(
+                            addingQuizToLessonId === lesson.id
+                              ? null
+                              : lesson.id
+                          )
+                        }
+                        className="text-sm px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                      >
+                        {addingQuizToLessonId === lesson.id
+                          ? 'Cancel'
+                          : lesson.quiz
+                          ? 'Edit Quiz'
+                          : 'Add Quiz'}
+                      </button>
                     </div>
+                    <p className="text-gray-700 mt-2 whitespace-pre-line">
+                      {lesson.content}
+                    </p>
 
-                    {addingQuizToLessonId === lesson.id && (
+                    {/* Sandbox Embed */}
+                    {lesson.sandboxUrl && (
+                      <div className="mt-4">
+                        <iframe
+                          src={lesson.sandboxUrl}
+                          title="Sandbox"
+                          className="w-full h-96 rounded-md border"
+                          allow="accelerometer; camera; microphone; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        ></iframe>
+                      </div>
+                    )}
+
+                    {/* QUIZ SECTION */}
+                    {addingQuizToLessonId === lesson.id ? (
                       <AddQuizForm
                         lesson={lesson}
                         courseId={courseId}
-                        moduleId={mod.id}
-                        onQuizAdded={() => { setAddingQuizToLessonId(null); fetchData(); }}
+                        moduleId={module.id}
+                        onQuizAdded={fetchData}
                         onCancel={() => setAddingQuizToLessonId(null)}
                       />
+                    ) : (
+                      lesson.quiz && (
+                        <div className="mt-4 p-3 border rounded bg-blue-50">
+                          <h5 className="font-semibold text-blue-800">
+                            Quiz: {lesson.quiz.title}
+                          </h5>
+                          {lesson.quiz.dueDate && (
+                            <p className="text-sm text-gray-600">
+                              Due:{" "}
+                              {new Date(
+                                // support Timestamp or Date
+                                (lesson.quiz.dueDate as any).seconds
+                                  ? (lesson.quiz.dueDate.seconds * 1000)
+                                  : lesson.quiz.dueDate
+                              ).toLocaleDateString()}
+                            </p>
+                          )}
+                          <p className="text-sm mt-1 text-gray-700">
+                            {lesson.quiz.questions.length} question
+                            {lesson.quiz.questions.length !== 1 && "s"}
+                          </p>
+                        </div>
+                      )
                     )}
 
-                    {/* Q&A */}
-                    {lesson.qanda && lesson.qanda.length > 0 && (
-                      <div className="mt-3 space-y-3">
-                        <h5 className="text-sm font-bold text-gray-700">Questions</h5>
-                        {lesson.qanda.map((q) => (
-                          <div key={q.id} className="p-3 bg-gray-50 rounded-md">
-                            <p className="text-sm font-medium">Q: {q.questionText}</p>
-                            <p className="text-xs text-gray-500">From: {q.studentEmail || 'student'}</p>
-                            {q.answerText ? (
-                              <div className="mt-2 p-2 bg-green-50 border-l-4 border-green-400 rounded">
-                                <p className="text-sm"><span className="font-bold">A:</span> {q.answerText}</p>
-                              </div>
-                            ) : (
-                              <AnswerQuestionForm question={q} courseId={courseId} moduleId={mod.id} lessonId={lesson.id} onAnswered={fetchData} />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    {/* Q&A SECTION */}
+                    <div className="mt-4">
+                      <h5 className="font-semibold text-gray-800 mb-2">
+                        Questions & Answers
+                      </h5>
+                      {lesson.qanda && lesson.qanda.length > 0 ? (
+                        <div className="space-y-3">
+                          {lesson.qanda.map((q) => (
+                            <div
+                              key={q.id}
+                              className="p-3 border rounded bg-white shadow-sm"
+                            >
+                              <p className="font-medium text-gray-800">
+                                Q: {q.questionText}
+                              </p>
+                              <p className="text-sm text-gray-500 italic">
+                                {q.studentEmail
+                                  ? `by ${q.studentEmail}`
+                                  : "Anonymous"}
+                              </p>
+                              {q.answerText ? (
+                                <p className="mt-2 text-gray-700">
+                                  <span className="font-semibold text-green-700">
+                                    A:
+                                  </span>{" "}
+                                  {q.answerText}
+                                </p>
+                              ) : (
+                                <AnswerQuestionForm
+                                  question={q}
+                                  courseId={courseId}
+                                  moduleId={module.id}
+                                  lessonId={lesson.id}
+                                  onAnswered={fetchData}
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-gray-500 text-sm italic">
+                          No questions yet.
+                        </p>
+                      )}
+                    </div>
                   </div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

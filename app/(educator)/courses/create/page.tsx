@@ -1,3 +1,4 @@
+// blockchain-lms/app/(educator)/courses/create/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';

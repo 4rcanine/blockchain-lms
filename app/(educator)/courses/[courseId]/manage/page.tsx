@@ -1,6 +1,5 @@
-// app/(educator)/courses/[courseId]/manage/page.tsx
+//app/(educator)/courses/[courseId]/manage/page.tsx
 'use client';
-
 import { useEffect, useState } from 'react';
 import {
   doc,
@@ -31,11 +30,13 @@ interface QandA {
   studentEmail?: string;
   askedAt?: any;
 }
+
 interface Question {
   questionText: string;
   options: string[];
   correctAnswerIndex: number;
 }
+
 interface Quiz {
   id: string;
   title: string;
@@ -43,6 +44,7 @@ interface Quiz {
   dueDate?: any;
   createdAt?: any;
 }
+
 interface Lesson {
   id: string;
   title: string;
@@ -52,11 +54,41 @@ interface Lesson {
   sandboxUrl?: string;
   createdAt?: any;
 }
+
 interface Module {
   id: string;
   title: string;
   lessons: Lesson[];
 }
+
+/* ---------------------------- Utility: Course Coloring (Locally Defined) ----------------------------- */
+
+// NOTE: This array MUST match the colors/order in the Student Calendar page to ensure consistency.
+const COLOR_MAP = [
+  { hex: '#6366F1', classes: 'text-indigo-700 bg-indigo-100 border-indigo-300' }, // Indigo
+  { hex: '#10B981', classes: 'text-emerald-700 bg-emerald-100 border-emerald-300' }, // Emerald
+  { hex: '#8B5CF6', classes: 'text-purple-700 bg-purple-100 border-purple-300' }, // Violet
+  { hex: '#F59E0B', classes: 'text-amber-700 bg-amber-100 border-amber-300' }, // Amber
+  { hex: '#EC4899', classes: 'text-pink-700 bg-pink-100 border-pink-300' }, // Pink
+  { hex: '#06B6D4', classes: 'text-cyan-700 bg-cyan-100 border-cyan-300' }, // Cyan
+  { hex: '#EF4444', classes: 'text-red-700 bg-red-100 border-red-300' }, // Red
+];
+
+/**
+ * Generates a consistent color object (hex and Tailwind classes) based on a string ID.
+ * The resulting index is always the same for the same input ID.
+ * @param id The string ID to hash (e.g., courseId)
+ * @returns The color object containing both hex and Tailwind class string.
+ */
+const getColorForId = (id: string): (typeof COLOR_MAP)[number] => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % COLOR_MAP.length;
+  return COLOR_MAP[index];
+};
+
 
 /* ---------------------------- AddLessonForm ----------------------------- */
 const AddLessonForm = ({
@@ -90,6 +122,7 @@ const AddLessonForm = ({
         moduleId,
         'lessons'
       );
+
       const newLessonRef = await addDoc(lessonsRef, {
         title: title.trim(),
         content,
@@ -122,8 +155,10 @@ const AddLessonForm = ({
           }}
         />
       )}
-
-      <form onSubmit={handleSubmit} className="my-4 p-4 bg-gray-50 border-2 border-dashed rounded-md">
+      <form
+        onSubmit={handleSubmit}
+        className="my-4 p-4 bg-gray-50 border-2 border-dashed rounded-md"
+      >
         <h4 className="font-semibold mb-2 text-gray-700">Add a New Lesson</h4>
         <input
           type="text"
@@ -141,24 +176,33 @@ const AddLessonForm = ({
           className="w-full p-2 border rounded-md"
         />
         <div className="mt-3">
-          <label className="block text-sm font-medium text-gray-700">Interactive Sandbox URL (Optional)</label>
+          <label className="block text-sm font-medium text-gray-700">
+            Interactive Sandbox URL (Optional)
+          </label>
           <input
             type="url"
-            placeholder="https://replit.com/..."
+            placeholder="https://stackblitz.com/..."
             value={sandboxUrl}
             onChange={(e) => setSandboxUrl(e.target.value)}
             className="w-full p-2 mt-1 border rounded-md"
           />
-          <p className="text-xs text-gray-500 mt-1">Example: Replit embed or other sandbox share URL.</p>
+          <p className="text-xs text-gray-500 mt-1">
+            Example: Replit embed or other sandbox share URL.
+          </p>
         </div>
-
         {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
-
         <div className="flex justify-between items-center mt-4">
-          <button type="button" onClick={() => setIsModalOpen(true)} className="px-4 py-2 text-sm font-semibold text-indigo-600 bg-indigo-100 rounded-md hover:bg-indigo-200">
+          <button
+            type="button"
+            onClick={() => setIsModalOpen(true)}
+            className="px-4 py-2 text-sm font-semibold text-indigo-600 bg-indigo-100 rounded-md hover:bg-indigo-200"
+          >
             Upload Image/File
           </button>
-          <button type="submit" className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700">
+          <button
+            type="submit"
+            className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700"
+          >
             Save Lesson
           </button>
         </div>
@@ -200,7 +244,10 @@ const AnswerQuestionForm = ({
         'qanda',
         question.id
       );
-      await updateDoc(qRef, { answerText: answer.trim(), answeredAt: serverTimestamp() });
+      await updateDoc(qRef, {
+        answerText: answer.trim(),
+        answeredAt: serverTimestamp(),
+      });
       onAnswered();
     } catch (err) {
       console.error(err);
@@ -219,7 +266,11 @@ const AnswerQuestionForm = ({
         rows={3}
       />
       <div className="flex gap-2">
-        <button type="submit" disabled={saving} className="px-3 py-1 text-xs bg-green-600 text-white rounded">
+        <button
+          type="submit"
+          disabled={saving}
+          className="px-3 py-1 text-xs bg-green-600 text-white rounded"
+        >
           {saving ? 'Saving...' : 'Submit Answer'}
         </button>
       </div>
@@ -243,17 +294,26 @@ const AddQuizForm = ({
 }) => {
   const [title, setTitle] = useState('');
   const [dueDate, setDueDate] = useState('');
-  const [questions, setQuestions] = useState<Question[]>([{ questionText: '', options: ['', '', '', ''], correctAnswerIndex: 0 }]);
+  const [questions, setQuestions] = useState<Question[]>([
+    { questionText: '', options: ['', '', '', ''], correctAnswerIndex: 0 },
+  ]);
   const [error, setError] = useState('');
 
-  const handleQuestionChange = (index: number, field: keyof Question, value: any) => {
+  const handleQuestionChange = (
+    index: number,
+    field: keyof Question,
+    value: any
+  ) => {
     const updated = [...questions];
     (updated[index] as any)[field] = value;
     setQuestions(updated);
   };
 
   const addQuestion = () => {
-    setQuestions([...questions, { questionText: '', options: ['', '', '', ''], correctAnswerIndex: 0 }]);
+    setQuestions([
+      ...questions,
+      { questionText: '', options: ['', '', '', ''], correctAnswerIndex: 0 },
+    ]);
   };
 
   // -------------------- UPDATED handleSubmit --------------------
@@ -264,7 +324,6 @@ const AddQuizForm = ({
       return;
     }
     setError('');
-
     try {
       // 1) create a new quiz doc under quizzes collection
       const quizzesCollectionRef = collection(
@@ -277,7 +336,6 @@ const AddQuizForm = ({
         lesson.id,
         'quizzes'
       );
-
       const newQuizRef = await addDoc(quizzesCollectionRef, {
         createdAt: serverTimestamp(),
       });
@@ -285,7 +343,6 @@ const AddQuizForm = ({
       // 2) inside that quiz doc, create quiz-data collection, document 'main'
       const quizDataCollectionRef = collection(newQuizRef, 'quiz-data');
       const mainQuizDataRef = doc(quizDataCollectionRef, 'main');
-
       await setDoc(mainQuizDataRef, {
         title,
         questions,
@@ -305,16 +362,33 @@ const AddQuizForm = ({
 
   return (
     <div className="my-4 p-4 bg-blue-50 border-2 border-dashed border-blue-300 rounded-md">
-      <h4 className="font-semibold mb-4 text-blue-800">Add a Quiz to this Lesson</h4>
+      <h4 className="font-semibold mb-4 text-blue-800">
+        Add a Quiz to this Lesson
+      </h4>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Quiz Title</label>
-            <input type="text" placeholder="Quiz Title" value={title} onChange={e => setTitle(e.target.value)} className="w-full p-2 mt-1 border rounded-md font-bold" />
+            <label className="block text-sm font-medium text-gray-700">
+              Quiz Title
+            </label>
+            <input
+              type="text"
+              placeholder="Quiz Title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full p-2 mt-1 border rounded-md font-bold"
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Due Date</label>
-            <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full p-2 mt-1 border rounded-md" />
+            <label className="block text-sm font-medium text-gray-700">
+              Due Date
+            </label>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="w-full p-2 mt-1 border rounded-md"
+            />
           </div>
         </div>
         {questions.map((q, index) => (
@@ -323,7 +397,9 @@ const AddQuizForm = ({
               type="text"
               placeholder="Question text"
               value={q.questionText}
-              onChange={e => handleQuestionChange(index, 'questionText', e.target.value)}
+              onChange={(e) =>
+                handleQuestionChange(index, 'questionText', e.target.value)
+              }
               className="w-full p-2 border rounded mb-2"
             />
             {q.options.map((opt, i) => (
@@ -332,13 +408,15 @@ const AddQuizForm = ({
                   type="radio"
                   name={`correct-${index}`}
                   checked={q.correctAnswerIndex === i}
-                  onChange={() => handleQuestionChange(index, 'correctAnswerIndex', i)}
+                  onChange={() =>
+                    handleQuestionChange(index, 'correctAnswerIndex', i)
+                  }
                 />
                 <input
                   type="text"
                   placeholder={`Option ${i + 1}`}
                   value={opt}
-                  onChange={e => {
+                  onChange={(e) => {
                     const newOptions = [...q.options];
                     newOptions[i] = e.target.value;
                     handleQuestionChange(index, 'options', newOptions);
@@ -350,9 +428,26 @@ const AddQuizForm = ({
           </div>
         ))}
         <div className="flex gap-2">
-          <button type="button" onClick={addQuestion} className="px-3 py-1 text-xs bg-indigo-100 rounded">Add Question</button>
-          <button type="submit" className="px-3 py-1 text-xs bg-blue-600 text-white rounded">Save Quiz</button>
-          <button type="button" onClick={onCancel} className="px-3 py-1 text-xs bg-gray-300 rounded">Cancel</button>
+          <button
+            type="button"
+            onClick={addQuestion}
+            className="px-3 py-1 text-xs bg-indigo-100 rounded"
+          >
+            Add Question
+          </button>
+          <button
+            type="submit"
+            className="px-3 py-1 text-xs bg-blue-600 text-white rounded"
+          >
+            Save Quiz
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-3 py-1 text-xs bg-gray-300 rounded"
+          >
+            Cancel
+          </button>
         </div>
         {error && <p className="text-red-500 text-sm">{error}</p>}
       </form>
@@ -369,12 +464,18 @@ export default function ManageCoursePage() {
   const [newModuleTitle, setNewModuleTitle] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [addingLessonToModuleId, setAddingLessonToModuleId] = useState<string | null>(null);
-  const [addingQuizToLessonId, setAddingQuizToLessonId] = useState<string | null>(null);
+  const [addingLessonToModuleId, setAddingLessonToModuleId] =
+    useState<string | null>(null);
+  const [addingQuizToLessonId, setAddingQuizToLessonId] =
+    useState<string | null>(null);
 
   const deleteCourseAndCollections = async () => {
     if (!courseId) return;
-    if (!window.confirm('ARE YOU ABSOLUTELY SURE? Deleting this course will permanently remove all modules, lessons, quizzes, Q&A, and enrollments.')) {
+    if (
+      !window.confirm(
+        'ARE YOU ABSOLUTELY SURE? Deleting this course will permanently remove all modules, lessons, quizzes, Q&A, and enrollments.'
+      )
+    ) {
       return;
     }
     setLoading(true);
@@ -392,15 +493,22 @@ export default function ManageCoursePage() {
 
           // delete qanda docs
           const qandaSnapshot = await getDocs(collection(lessonRef, 'qanda'));
-          qandaSnapshot.docs.forEach((qDoc) => batch.delete(doc(lessonRef, 'qanda', qDoc.id)));
+          qandaSnapshot.docs.forEach((qDoc) =>
+            batch.delete(doc(lessonRef, 'qanda', qDoc.id))
+          );
 
           // delete quizzes and nested quiz-data docs
-          const quizzesSnapshot = await getDocs(collection(lessonRef, 'quizzes'));
+          const quizzesSnapshot = await getDocs(
+            collection(lessonRef, 'quizzes')
+          );
           for (const quizDoc of quizzesSnapshot.docs) {
             // delete any docs inside quizzes/{quizId}/quiz-data
-            const quizDataSnapshot = await getDocs(collection(quizDoc.ref, 'quiz-data'));
-            quizDataSnapshot.docs.forEach((qd) => batch.delete(doc(quizDoc.ref, 'quiz-data', qd.id)));
-
+            const quizDataSnapshot = await getDocs(
+              collection(quizDoc.ref, 'quiz-data')
+            );
+            quizDataSnapshot.docs.forEach((qd) =>
+              batch.delete(doc(quizDoc.ref, 'quiz-data', qd.id))
+            );
             // delete the quiz document itself
             batch.delete(doc(lessonRef, 'quizzes', quizDoc.id));
           }
@@ -413,14 +521,20 @@ export default function ManageCoursePage() {
         batch.delete(moduleRef);
       }
 
-      const enrollmentsSnapshot = await getDocs(collection(courseRef, 'enrollments'));
-      enrollmentsSnapshot.docs.forEach((eDoc) => batch.delete(doc(courseRef, 'enrollments', eDoc.id)));
+      const enrollmentsSnapshot = await getDocs(
+        collection(courseRef, 'enrollmentRequests')
+      );
+      enrollmentsSnapshot.docs.forEach((eDoc) =>
+        batch.delete(doc(courseRef, 'enrollments', eDoc.id))
+      );
 
       // delete course doc
       batch.delete(courseRef);
-
       await batch.commit();
-      alert(`Course "${course?.title || 'Untitled'}" deleted successfully.`);
+
+      alert(
+        `Course "${course?.title || 'Untitled'}" deleted successfully.`
+      );
       window.location.href = '/educator/courses/my-courses';
     } catch (err) {
       console.error('Critical Deletion Error:', err);
@@ -438,24 +552,71 @@ export default function ManageCoursePage() {
       const courseSnap = await getDoc(courseDocRef);
       if (courseSnap.exists()) setCourse(courseSnap.data() as { title: string });
 
-      const modulesSnapshot = await getDocs(query(collection(db, 'courses', courseId, 'modules'), orderBy('createdAt')));
+      const modulesSnapshot = await getDocs(
+        query(
+          collection(db, 'courses', courseId, 'modules'),
+          orderBy('createdAt')
+        )
+      );
+
       const modulesList: Module[] = await Promise.all(
         modulesSnapshot.docs.map(async (moduleDoc) => {
           const moduleData = moduleDoc.data() as Omit<Module, 'id' | 'lessons'>;
 
-          const lessonsSnapshot = await getDocs(query(collection(db, 'courses', courseId, 'modules', moduleDoc.id, 'lessons'), orderBy('createdAt')));
+          const lessonsSnapshot = await getDocs(
+            query(
+              collection(
+                db,
+                'courses',
+                courseId,
+                'modules',
+                moduleDoc.id,
+                'lessons'
+              ),
+              orderBy('createdAt')
+            )
+          );
+
           const lessonsList: Lesson[] = await Promise.all(
             lessonsSnapshot.docs.map(async (lessonDoc) => {
-              const lessonData = lessonDoc.data() as Omit<Lesson, 'id' | 'qanda' | 'quiz'>;
+              const lessonData = lessonDoc.data() as Omit<
+                Lesson,
+                'id' | 'qanda' | 'quiz'
+              >;
 
               // q&a
-              const qandaSnapshot = await getDocs(query(collection(db, 'courses', courseId, 'modules', moduleDoc.id, 'lessons', lessonDoc.id, 'qanda'), orderBy('askedAt')));
-              const qandaList = qandaSnapshot.docs.map((qDoc) => ({ id: qDoc.id, ...qDoc.data() })) as QandA[];
+              const qandaSnapshot = await getDocs(
+                query(
+                  collection(
+                    db,
+                    'courses',
+                    courseId,
+                    'modules',
+                    moduleDoc.id,
+                    'lessons',
+                    lessonDoc.id,
+                    'qanda'
+                  ),
+                  orderBy('askedAt')
+                )
+              );
+              const qandaList = qandaSnapshot.docs.map((qDoc) => ({
+                id: qDoc.id,
+                ...qDoc.data(),
+              })) as QandA[];
 
               // ---- NEW: fetch quizzes collection and look for quiz-data/main documents ----
-              const quizzesCollectionRef = collection(db, 'courses', courseId, 'modules', moduleDoc.id, 'lessons', lessonDoc.id, 'quizzes');
+              const quizzesCollectionRef = collection(
+                db,
+                'courses',
+                courseId,
+                'modules',
+                moduleDoc.id,
+                'lessons',
+                lessonDoc.id,
+                'quizzes'
+              );
               const quizzesSnapshot = await getDocs(quizzesCollectionRef);
-
               let selectedQuiz: Quiz | undefined = undefined;
               const quizCandidates: Quiz[] = [];
 
@@ -520,7 +681,11 @@ export default function ManageCoursePage() {
     e.preventDefault();
     if (!newModuleTitle.trim() || !courseId) return;
     try {
-      await addDoc(collection(db, 'courses', courseId, 'modules'), { title: newModuleTitle.trim(), createdAt: serverTimestamp(), lessons: [] });
+      await addDoc(collection(db, 'courses', courseId, 'modules'), {
+        title: newModuleTitle.trim(),
+        createdAt: serverTimestamp(),
+        lessons: [],
+      });
       setNewModuleTitle('');
       fetchData();
     } catch (err) {
@@ -536,10 +701,15 @@ export default function ManageCoursePage() {
       <div className="flex justify-between items-start mb-8">
         <div>
           <h1 className="text-sm text-gray-500">Managing Course</h1>
-          <h2 className="text-3xl font-bold">{course?.title || 'Untitled Course'}</h2>
+          <h2 className="text-3xl font-bold">
+            {course?.title || 'Untitled Course'}
+          </h2>
         </div>
         <div className="flex gap-2">
-          <Link href={`/courses/${courseId}/enrollments`} className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md">
+          <Link
+            href={`/courses/${courseId}/enrollments`}
+            className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md"
+          >
             Enrollments
           </Link>
           <Link
@@ -558,7 +728,10 @@ export default function ManageCoursePage() {
       </div>
 
       {/* MODULE CREATION */}
-      <form onSubmit={handleAddModule} className="flex items-center gap-2 mb-6">
+      <form
+        onSubmit={handleAddModule}
+        className="flex items-center gap-2 mb-6"
+      >
         <input
           type="text"
           placeholder="New Module Title"
@@ -577,10 +750,15 @@ export default function ManageCoursePage() {
       {/* MODULES DISPLAY */}
       <div className="space-y-10">
         {modules.length === 0 && (
-          <p className="text-gray-500 italic">No modules yet. Add one above to begin.</p>
+          <p className="text-gray-500 italic">
+            No modules yet. Add one above to begin.
+          </p>
         )}
         {modules.map((module) => (
-          <div key={module.id} className="p-6 bg-white border rounded-lg shadow-sm">
+          <div
+            key={module.id}
+            className="p-6 bg-white border rounded-lg shadow-sm"
+          >
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-2xl font-bold">{module.title}</h3>
               <button
@@ -591,9 +769,7 @@ export default function ManageCoursePage() {
                 }
                 className="px-3 py-1 text-sm font-semibold bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
               >
-                {addingLessonToModuleId === module.id
-                  ? 'Cancel'
-                  : 'Add Lesson'}
+                {addingLessonToModuleId === module.id ? 'Cancel' : 'Add Lesson'}
               </button>
             </div>
 
@@ -608,7 +784,9 @@ export default function ManageCoursePage() {
 
             {/* LESSONS DISPLAY */}
             {module.lessons.length === 0 ? (
-              <p className="text-gray-500 italic">No lessons in this module.</p>
+              <p className="text-gray-500 italic">
+                No lessons in this module.
+              </p>
             ) : (
               <div className="space-y-6">
                 {module.lessons.map((lesson) => (
@@ -636,7 +814,8 @@ export default function ManageCoursePage() {
                       </button>
                     </div>
                     <p className="text-gray-700 mt-2 whitespace-pre-line">
-                      {lesson.content}
+                      {' '}
+                      {lesson.content}{' '}
                     </p>
 
                     {/* Sandbox Embed */}
@@ -664,22 +843,27 @@ export default function ManageCoursePage() {
                       lesson.quiz && (
                         <div className="mt-4 p-3 border rounded bg-blue-50">
                           <h5 className="font-semibold text-blue-800">
-                            Quiz: {lesson.quiz.title}
+                            {' '}
+                            Quiz: {lesson.quiz.title}{' '}
                           </h5>
                           {lesson.quiz.dueDate && (
-                            <p className="text-sm text-gray-600">
-                              Due:{" "}
+                            <p
+                              className={`inline-block px-2 py-1 rounded text-xs font-semibold ${getColorForId(
+                                courseId
+                              ).classes} border`}
+                            >
+                              Due:{' '}
                               {new Date(
-                                // support Timestamp or Date
                                 (lesson.quiz.dueDate as any).seconds
-                                  ? (lesson.quiz.dueDate.seconds * 1000)
+                                  ? lesson.quiz.dueDate.seconds * 1000
                                   : lesson.quiz.dueDate
                               ).toLocaleDateString()}
                             </p>
                           )}
                           <p className="text-sm mt-1 text-gray-700">
-                            {lesson.quiz.questions.length} question
-                            {lesson.quiz.questions.length !== 1 && "s"}
+                            {' '}
+                            {lesson.quiz.questions.length} question{' '}
+                            {lesson.quiz.questions.length !== 1 && 's'}{' '}
                           </p>
                         </div>
                       )
@@ -688,7 +872,8 @@ export default function ManageCoursePage() {
                     {/* Q&A SECTION */}
                     <div className="mt-4">
                       <h5 className="font-semibold text-gray-800 mb-2">
-                        Questions & Answers
+                        {' '}
+                        Questions & Answers{' '}
                       </h5>
                       {lesson.qanda && lesson.qanda.length > 0 ? (
                         <div className="space-y-3">
@@ -698,19 +883,23 @@ export default function ManageCoursePage() {
                               className="p-3 border rounded bg-white shadow-sm"
                             >
                               <p className="font-medium text-gray-800">
-                                Q: {q.questionText}
+                                {' '}
+                                Q: {q.questionText}{' '}
                               </p>
                               <p className="text-sm text-gray-500 italic">
+                                {' '}
                                 {q.studentEmail
                                   ? `by ${q.studentEmail}`
-                                  : "Anonymous"}
+                                  : 'Anonymous'}{' '}
                               </p>
                               {q.answerText ? (
                                 <p className="mt-2 text-gray-700">
+                                  {' '}
                                   <span className="font-semibold text-green-700">
-                                    A:
-                                  </span>{" "}
-                                  {q.answerText}
+                                    {' '}
+                                    A:{' '}
+                                  </span>{' '}
+                                  {q.answerText}{' '}
                                 </p>
                               ) : (
                                 <AnswerQuestionForm
@@ -726,7 +915,8 @@ export default function ManageCoursePage() {
                         </div>
                       ) : (
                         <p className="text-gray-500 text-sm italic">
-                          No questions yet.
+                          {' '}
+                          No questions yet.{' '}
                         </p>
                       )}
                     </div>

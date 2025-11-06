@@ -1,8 +1,7 @@
-//app/courses/[courseId]/view/page.tsx
-
+// app/courses/[courseId]/view/page.tsx
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
     doc,
     getDoc,
@@ -15,6 +14,7 @@ import {
     updateDoc,
     arrayUnion,
     writeBatch,
+    Timestamp,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
@@ -28,8 +28,9 @@ interface QandA {
     id: string;
     questionText: string;
     answerText?: string;
+    studentId: string;
     studentEmail: string;
-    askedAt: any;
+    askedAt: Timestamp | Date;
 }
 interface Question {
     questionText: string;
@@ -40,8 +41,10 @@ interface Quiz {
     id: string;
     title: string;
     questions: Question[];
+    dueDate?: any;
 }
 interface QuizAttempt {
+    studentId: string;
     score: number;
     totalQuestions: number;
     answers: { [key: number]: number };
@@ -53,6 +56,7 @@ interface Lesson {
     content: string;
     qanda?: QandA[];
     quiz?: Quiz;
+    quizAttempt?: QuizAttempt | null;
     sandboxUrl?: string;
 }
 interface Module {
@@ -86,9 +90,14 @@ const QandASection = ({
     const [question, setQuestion] = useState('');
     const [qandaList, setQandaList] = useState<QandA[]>(lesson.qanda || []);
 
+    useEffect(() => {
+        setQandaList(lesson.qanda || []);
+    }, [lesson.qanda]);
+
     const handleAskQuestion = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!question.trim() || !user || !user.email) return;
+        if (!question.trim() || !user || !user.email || !user.uid) return;
+
         const qandaRef = collection(
             db,
             'courses',
@@ -99,16 +108,28 @@ const QandASection = ({
             lesson.id,
             'qanda'
         );
-        const newQuestion = {
+
+        const newQuestionData = {
             questionText: question,
             answerText: '',
             studentId: user.uid,
             studentEmail: user.email,
             askedAt: serverTimestamp(),
         };
-        await addDoc(qandaRef, newQuestion);
-        setQandaList([...qandaList, { ...newQuestion, id: 'temp', askedAt: new Date() }]);
-        setQuestion('');
+
+        try {
+            const docRef = await addDoc(qandaRef, newQuestionData);
+            const tempQandA: QandA = {
+                id: docRef.id,
+                ...newQuestionData,
+                askedAt: new Date(),
+                studentId: user.uid,
+            };
+            setQandaList((prev) => [...prev, tempQandA]);
+            setQuestion('');
+        } catch (error) {
+            console.error('Error asking question:', error);
+        }
     };
 
     return (
@@ -121,10 +142,12 @@ const QandASection = ({
                     placeholder="Ask a question about this lesson..."
                     rows={4}
                     className="w-full p-3 border rounded-md"
+                    disabled={!user}
                 />
                 <button
                     type="submit"
-                    className="mt-2 px-5 py-2 font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700"
+                    disabled={!user || !question.trim()}
+                    className="mt-2 px-5 py-2 font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
                 >
                     Submit Question
                 </button>
@@ -163,7 +186,7 @@ const QuizTaker = ({
     courseId: string;
     moduleId: string;
     lessonId: string;
-    onQuizCompleted: () => void;
+    onQuizCompleted: (attempt: QuizAttempt) => void;
 }) => {
     const { user } = useAuth();
     const [selectedAnswers, setSelectedAnswers] = useState<{ [key: number]: number }>({});
@@ -185,21 +208,26 @@ const QuizTaker = ({
         }
         setIsSubmitting(true);
         setError('');
+
         let score = 0;
         quiz.questions.forEach((q, index) => {
             if (selectedAnswers[index] === q.correctAnswerIndex) {
                 score++;
             }
         });
-        const attemptData = {
+
+        const attemptData: QuizAttempt = {
             studentId: user.uid,
             score: score,
             totalQuestions: quiz.questions.length,
             answers: selectedAnswers,
             submittedAt: serverTimestamp(),
         };
+
         try {
             const batch = writeBatch(db);
+
+            // Write attempt to quizzes/{quizId}/quizAttempts/{uid}
             const attemptDocRef = doc(
                 db,
                 'courses',
@@ -209,18 +237,24 @@ const QuizTaker = ({
                 'lessons',
                 lessonId,
                 'quizzes',
-                'quiz-data',
+                quiz.id,
                 'quizAttempts',
                 user.uid
             );
             batch.set(attemptDocRef, attemptData);
+
+            // Mark lesson as complete in enrollmentRequests
             const enrollmentDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
             batch.update(enrollmentDocRef, { completedItems: arrayUnion(lessonId) });
+
             await batch.commit();
-            onQuizCompleted();
+
+            // Return attempt (with local timestamp) to parent
+            onQuizCompleted({ ...attemptData, submittedAt: new Date() });
         } catch (err) {
-            console.error(err);
+            console.error('Failed to submit quiz:', err);
             setError('Failed to submit your quiz. Please try again.');
+        } finally {
             setIsSubmitting(false);
         }
     };
@@ -250,6 +284,7 @@ const QuizTaker = ({
                                         name={`question-${qIndex}`}
                                         value={oIndex}
                                         onChange={() => handleAnswerSelect(qIndex, oIndex)}
+                                        checked={selectedAnswers[qIndex] === oIndex}
                                         className="mr-2"
                                     />
                                     {option}
@@ -262,7 +297,7 @@ const QuizTaker = ({
             {error && <p className="text-red-500 mt-4">{error}</p>}
             <button
                 onClick={handleSubmit}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !user}
                 className="mt-6 w-full px-6 py-3 font-bold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:bg-gray-400"
             >
                 {isSubmitting ? 'Submitting...' : 'Submit Quiz'}
@@ -276,7 +311,7 @@ const QuizResult = ({ attempt, quiz }: { attempt: QuizAttempt; quiz: Quiz }) => 
     const getOptionClassName = (qIndex: number, oIndex: number) => {
         const isCorrect = quiz.questions[qIndex].correctAnswerIndex === oIndex;
         const isSelected = attempt.answers[qIndex] === oIndex;
-        if (isCorrect) return 'bg-green-100 border-green-400';
+        if (isCorrect) return 'bg-green-100 border-green-400 font-bold';
         if (isSelected && !isCorrect) return 'bg-red-100 border-red-400';
         return 'bg-gray-50';
     };
@@ -302,6 +337,12 @@ const QuizResult = ({ attempt, quiz }: { attempt: QuizAttempt; quiz: Quiz }) => 
                                     )}`}
                                 >
                                     {option}
+                                    {quiz.questions[qIndex].correctAnswerIndex === oIndex && (
+                                        <span className="ml-2 text-green-700 font-bold">(Correct Answer)</span>
+                                    )}
+                                    {attempt.answers[qIndex] === oIndex && quiz.questions[qIndex].correctAnswerIndex !== oIndex && (
+                                        <span className="ml-2 text-red-700 font-bold">(Your Answer)</span>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -328,10 +369,35 @@ export default function CourseViewerPage() {
     const [enrollmentData, setEnrollmentData] = useState<EnrollmentData | null>(null);
     const [isInstructor, setIsInstructor] = useState(false);
 
-    const fetchData = async () => {
+    // fetchQuizAttempt signature updated to accept quizId
+    const fetchQuizAttempt = useCallback(async (moduleId: string, lessonId: string, quizId?: string) => {
+        if (!user || !quizId) return;
+        const attemptDocRef = doc(
+            db,
+            'courses',
+            courseId,
+            'modules',
+            moduleId,
+            'lessons',
+            lessonId,
+            'quizzes',
+            quizId,
+            'quizAttempts',
+            user.uid
+        );
+        const attemptDocSnap = await getDoc(attemptDocRef);
+        if (attemptDocSnap.exists()) {
+            setQuizAttempt(attemptDocSnap.data() as QuizAttempt);
+        } else {
+            setQuizAttempt(null);
+        }
+    }, [courseId, user]);
+
+    const fetchData = useCallback(async () => {
         if (!user || !courseId) return;
+
         try {
-            // fetch enrollment doc first (this enforces rule)
+            // 1. Fetch enrollment doc
             const enrollmentRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
             const enrollmentSnap = await getDoc(enrollmentRef);
             if (!enrollmentSnap.exists()) {
@@ -339,14 +405,14 @@ export default function CourseViewerPage() {
             }
             setEnrollmentData(enrollmentSnap.data() as EnrollmentData);
 
-            // fetch course doc to determine instructor status (so we avoid forbidden writes)
+            // 2. Fetch course doc to determine instructor status
             const courseDocRef = doc(db, 'courses', courseId);
             const courseDocSnap = await getDoc(courseDocRef);
             const courseDocData = courseDocSnap.exists() ? courseDocSnap.data() : null;
             const instructorIds = (courseDocData?.instructorIds as string[] | undefined) || [];
             setIsInstructor(instructorIds.includes(user.uid));
 
-            // fetch modules (read)
+            // 3. Fetch modules and lessons (including quizzes)
             const modulesSnapshot = await getDocs(
                 query(collection(db, 'courses', courseId, 'modules'), orderBy('createdAt'))
             );
@@ -367,9 +433,10 @@ export default function CourseViewerPage() {
                         lessonsSnapshot.docs.map(async (lessonDoc) => {
                             const lessonData = lessonDoc.data() as Omit<
                                 Lesson,
-                                'id' | 'qanda' | 'quiz'
+                                'id' | 'qanda' | 'quiz' | 'quizAttempt'
                             >;
 
+                            // Fetch Q&A
                             const qandaSnapshot = await getDocs(
                                 query(
                                     collection(
@@ -390,7 +457,8 @@ export default function CourseViewerPage() {
                                 ...qDoc.data(),
                             })) as QandA[];
 
-                            const quizDocRef = doc(
+                            // Fetch quizzes collection and the quiz-data/main doc for each quiz
+                            const quizzesCollectionRef = collection(
                                 db,
                                 'courses',
                                 courseId,
@@ -398,32 +466,83 @@ export default function CourseViewerPage() {
                                 moduleDoc.id,
                                 'lessons',
                                 lessonDoc.id,
-                                'quizzes',
-                                'quiz-data'
+                                'quizzes'
                             );
-                            const quizDocSnap = await getDoc(quizDocRef);
-                            const quizData = quizDocSnap.exists()
-                                ? ({ id: quizDocSnap.id, ...quizDocSnap.data() } as Quiz)
-                                : undefined;
+                            const quizzesSnapshot = await getDocs(quizzesCollectionRef);
+
+                            let selectedQuiz: Quiz | undefined = undefined;
+                            const quizCandidates: Quiz[] = [];
+
+                            for (const quizDoc of quizzesSnapshot.docs) {
+                                // For each quiz document, look for quiz-data/main
+                                const quizDataDocRef = doc(quizDoc.ref, 'quiz-data', 'main');
+                                const quizDataSnap = await getDoc(quizDataDocRef);
+                                if (quizDataSnap.exists()) {
+                                    const qData = quizDataSnap.data() as any;
+                                    quizCandidates.push({
+                                        id: quizDoc.id,
+                                        title: qData.title,
+                                        questions: qData.questions || [],
+                                        dueDate: qData.dueDate,
+                                        // createdAt may be available in qData
+                                        createdAt: qData.createdAt,
+                                    } as Quiz);
+                                }
+                            }
+
+                            // If multiple quizzes exist, pick the most recent by createdAt if available
+                            if (quizCandidates.length > 0) {
+                                quizCandidates.sort((a, b) => {
+                                    const ta = (a as any).createdAt ? ((a as any).createdAt.seconds ?? 0) : 0;
+                                    const tb = (b as any).createdAt ? ((b as any).createdAt.seconds ?? 0) : 0;
+                                    return tb - ta;
+                                });
+                                selectedQuiz = quizCandidates[0];
+                            }
+
+                            // Fetch the student's attempt for this lesson's selected quiz (if any)
+                            let attempt: QuizAttempt | null = null;
+                            if (user && selectedQuiz) {
+                                const attemptRef = doc(
+                                    db,
+                                    'courses',
+                                    courseId,
+                                    'modules',
+                                    moduleDoc.id,
+                                    'lessons',
+                                    lessonDoc.id,
+                                    'quizzes',
+                                    selectedQuiz.id,
+                                    'quizAttempts',
+                                    user.uid
+                                );
+                                const attemptSnap = await getDoc(attemptRef);
+                                if (attemptSnap.exists()) {
+                                    attempt = attemptSnap.data() as QuizAttempt;
+                                }
+                            }
 
                             return {
                                 id: lessonDoc.id,
-                                ...lessonData,
+                                title: lessonData.title,
+                                content: lessonData.content,
+                                sandboxUrl: lessonData.sandboxUrl,
                                 qanda: qandaList,
-                                quiz: quizData,
+                                quiz: selectedQuiz,
+                                quizAttempt: attempt,
                             } as Lesson;
                         })
                     );
 
-                    // --- AUTO-POPULATE LESSONS FIELD (only if the current user is an instructor) ---
+                    // Auto-populate lessons field is an Instructor-only action,
+                    // which is now guarded by `isInstructor`.
                     const lessonIds = lessonsList.map((l) => l.id);
-                    if (isInstructor) {
+                    if (instructorIds.includes(user.uid)) {
                         try {
                             await updateDoc(doc(db, 'courses', courseId, 'modules', moduleDoc.id), {
                                 lessons: lessonIds,
                             });
                         } catch (err) {
-                            // If update fails for any reason, log but continue.
                             console.warn('Could not auto-populate lessons field (non-fatal):', err);
                         }
                     }
@@ -437,54 +556,96 @@ export default function CourseViewerPage() {
             );
 
             setModules(modulesList);
-            if (modulesList.length > 0 && modulesList[0].lessons.length > 0) {
-                handleLessonSelect(modulesList[0].lessons[0], modulesList[0].id);
+
+            // Auto-select first lesson if none is selected
+            if (modulesList.length > 0 && modulesList[0].lessons.length > 0 && !selectedLesson) {
+                const firstLesson = modulesList[0].lessons[0];
+                setSelectedLesson(firstLesson);
+                setCurrentModuleId(modulesList[0].id);
+                // Also fetch attempt for the first lesson immediately (if quiz exists)
+                if (firstLesson.quiz) {
+                    await fetchQuizAttempt(modulesList[0].id, firstLesson.id, firstLesson.quiz.id);
+                }
             }
         } catch (err: any) {
+            console.error('Error fetching data:', err);
             setError(err.message);
         } finally {
             setLoading(false);
         }
-    };
+    }, [courseId, user, selectedLesson, fetchQuizAttempt]);
 
     const handleLessonSelect = async (lesson: Lesson, moduleId: string) => {
-        setSelectedLesson(lesson);
+        // Find the full lesson object from the modules list to ensure we have the most current Q&A/Quiz data
+        const module = modules.find(m => m.id === moduleId);
+        const fullLesson = module?.lessons.find(l => l.id === lesson.id) || lesson;
+
+        setSelectedLesson(fullLesson);
         setCurrentModuleId(moduleId);
-        setQuizAttempt(null);
-        if (lesson.quiz && user) {
-            const attemptDocRef = doc(
-                db,
-                'courses',
-                courseId,
-                'modules',
-                moduleId,
-                'lessons',
-                lesson.id,
-                'quizzes',
-                'quiz-data',
-                'quizAttempts',
-                user.uid
+        setQuizAttempt(null); // Reset quiz attempt when changing lessons
+
+        if (fullLesson.quiz && user) {
+            await fetchQuizAttempt(moduleId, fullLesson.id, fullLesson.quiz.id);
+        }
+    };
+
+    // Update state locally after quiz completion
+    const handleQuizCompleted = (attempt: QuizAttempt) => {
+        setQuizAttempt(attempt);
+
+        // Update enrollment data locally
+        if (selectedLesson) {
+            setEnrollmentData((prev) => {
+                if (!prev) return null;
+                const existingItems = prev.completedItems || [];
+                const updatedCompletedItems = Array.from(new Set([
+                    ...existingItems,
+                    selectedLesson.id,
+                ]));
+                return {
+                    ...prev,
+                    completedItems: updatedCompletedItems,
+                } as EnrollmentData;
+            });
+
+            // Also update modules state so UI shows quizAttempt for this lesson
+            setModules((prevModules) =>
+                prevModules.map((mod) =>
+                    mod.id === currentModuleId
+                        ? {
+                              ...mod,
+                              lessons: mod.lessons.map((l) =>
+                                  l.id === selectedLesson.id ? { ...l, quizAttempt: attempt } : l
+                              ),
+                          }
+                        : mod
+                )
             );
-            const attemptDocSnap = await getDoc(attemptDocRef);
-            if (attemptDocSnap.exists()) {
-                setQuizAttempt(attemptDocSnap.data() as QuizAttempt);
-            }
         }
     };
 
     const handleMarkComplete = async () => {
         if (!user || !selectedLesson) return;
+
+        const isQuizPresentAndIncomplete = selectedLesson.quiz && !quizAttempt;
+
+        if (isQuizPresentAndIncomplete) {
+            alert("Please complete the quiz before marking this lesson as complete.");
+            return;
+        }
+
         try {
             const enrollmentDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
             await updateDoc(enrollmentDocRef, {
                 completedItems: arrayUnion(selectedLesson.id),
             });
-            setEnrollmentData((prev) => ( {
+            setEnrollmentData((prev) => ({
                 ...prev!,
-                completedItems: [...(prev?.completedItems || []), selectedLesson.id],
+                completedItems: [...(prev?.completedItems || []).filter(id => id !== selectedLesson.id), selectedLesson.id],
             }));
         } catch (error) {
             console.error('Failed to mark complete:', error);
+            setError('Failed to mark complete. Please try again.');
         }
     };
 
@@ -499,6 +660,10 @@ export default function CourseViewerPage() {
     const isCurrentLessonComplete =
         enrollmentData?.completedItems?.includes(selectedLesson?.id || '') ?? false;
 
+    const isReadyToComplete = selectedLesson &&
+                             (!selectedLesson.quiz || quizAttempt) &&
+                             !isCurrentLessonComplete;
+
     useEffect(() => {
         if (authLoading) return;
         if (!user) {
@@ -507,14 +672,15 @@ export default function CourseViewerPage() {
         }
         setLoading(true);
         fetchData();
-    }, [courseId, user, authLoading, router, isInstructor]);
+    }, [courseId, user, authLoading, router, fetchData]);
 
-    if (loading) return <p>Loading Course Content...</p>;
+    if (loading) return <p className="text-center mt-10 text-xl font-semibold">Loading Course Content... Get ready to learn! </p>;
     if (error)
         return (
-            <div className="text-center mt-10">
-                <p className="text-red-500 mb-4">{error}</p>
-                <Link href="/courses" className="text-indigo-600 hover:underline">
+            <div className="text-center mt-10 p-6 border rounded-lg shadow-lg bg-red-50">
+                <h1 className="text-2xl font-bold text-red-700 mb-4">Access Denied!</h1>
+                <p className="text-red-600 mb-4">{error}</p>
+                <Link href="/courses" className="text-indigo-600 hover:underline font-medium">
                     Return to Course Catalog
                 </Link>
             </div>
@@ -527,12 +693,13 @@ export default function CourseViewerPage() {
                     height: calc(100vh - 68px);
                 }
             `}</style>
+
             <aside className="w-1/4 h-screen-minus-header p-4 bg-gray-50 border-r overflow-y-auto">
                 <h2 className="text-xl font-bold mb-4">Course Outline</h2>
 
-                <div className="mb-4">
+                <div className="mb-6">
                     <div className="flex justify-between items-center mb-1">
-                        <span className="text-sm font-medium text-gray-700">Progress</span>
+                        <span className="text-sm font-medium text-gray-700">Your Progress</span>
                         <span className="text-sm font-medium text-gray-700">
                             {courseProgress}%
                         </span>
@@ -542,33 +709,33 @@ export default function CourseViewerPage() {
 
                 <nav className="space-y-4">
                 {modules.map((module) => (
-                    <div key={module.id}>
+                    <div key={module.id} className="border-b pb-2">
                         <h3 className="font-semibold text-gray-800 mb-2">{module.title}</h3>
                         <ul className="space-y-1">
                             {module.lessons.map((lesson) => (
                                 <li key={lesson.id}>
                                     <button
                                         onClick={() => handleLessonSelect(lesson, module.id)}
-                                        className={`w-full text-left p-2 rounded-md flex justify-between items-center text-sm ${
+                                        className={`w-full text-left p-2 rounded-md flex justify-between items-center text-sm transition-colors duration-150 ${
                                             selectedLesson?.id === lesson.id
-                                                ? 'bg-indigo-100 text-indigo-700 font-bold'
+                                                ? 'bg-indigo-100 text-indigo-700 font-bold border-l-4 border-indigo-500'
                                                 : 'hover:bg-gray-200'
                                         }`}
                                     >
-                                        <span>{lesson.title}</span>
-                                        <div className="flex items-center gap-2">
+                                        <span className="truncate pr-2">{lesson.title}</span>
+                                        <div className="flex items-center gap-2 flex-shrink-0">
                                             {lesson.sandboxUrl && (
-                                                <span className="text-xs font-bold text-purple-800 bg-purple-200 px-2 py-1 rounded-full">
+                                                <span title="Interactive Lab" className="text-xs font-bold text-purple-800 bg-purple-200 px-2 py-1 rounded-full">
                                                     Lab
                                                 </span>
                                             )}
                                             {lesson.quiz && (
-                                                <span className="text-xs font-bold text-blue-800 bg-blue-200 px-2 py-1 rounded-full">
+                                                <span title="Quiz" className="text-xs font-bold text-blue-800 bg-blue-200 px-2 py-1 rounded-full">
                                                     Quiz
                                                 </span>
                                             )}
                                             {enrollmentData?.completedItems?.includes(lesson.id) && (
-                                                <span className="text-xs font-bold text-green-800 bg-green-200 px-2 py-1 rounded-full">
+                                                <span title="Completed" className="text-xs font-bold text-green-800 bg-green-200 px-2 py-1 rounded-full">
                                                     Done
                                                 </span>
                                             )}
@@ -579,11 +746,9 @@ export default function CourseViewerPage() {
                         </ul>
                     </div>
                 ))}
-            </nav>
-
+                </nav>
             </aside>
 
-            {/* --- MAIN LESSON AREA --- */}
             <main className="w-3/4 p-8 overflow-y-auto h-screen-minus-header">
                 {selectedLesson ? (
                     <article>
@@ -594,7 +759,6 @@ export default function CourseViewerPage() {
                             </ReactMarkdown>
                         </div>
 
-                        {/* --- Optional Lab --- */}
                         {selectedLesson.sandboxUrl && (
                             <div className="mt-12 pt-8 border-t">
                                 <h2 className="text-2xl font-bold mb-4">Interactive Lab</h2>
@@ -609,34 +773,41 @@ export default function CourseViewerPage() {
                         )}
 
                         {/* --- Quiz --- */}
-                        {quizAttempt ? (
-                            <QuizResult attempt={quizAttempt} quiz={selectedLesson.quiz!} />
-                        ) : selectedLesson.quiz ? (
-                            <QuizTaker
-                                quiz={selectedLesson.quiz}
-                                courseId={courseId}
-                                moduleId={currentModuleId!}
-                                lessonId={selectedLesson.id}
-                                onQuizCompleted={fetchData}
-                            />
-                        ) : null}
+                        {selectedLesson.quiz && (
+                            selectedLesson.quizAttempt ? (
+                                <QuizResult attempt={selectedLesson.quizAttempt} quiz={selectedLesson.quiz} />
+                            ) : (
+                                <QuizTaker
+                                    quiz={selectedLesson.quiz}
+                                    courseId={courseId}
+                                    moduleId={currentModuleId!}
+                                    lessonId={selectedLesson.id}
+                                    onQuizCompleted={handleQuizCompleted}
+                                />
+                            )
+                        )}
 
                         {/* --- Mark Complete Button --- */}
                         <div className="mt-12 pt-8 border-t">
                             <button
                                 onClick={handleMarkComplete}
-                                disabled={isCurrentLessonComplete}
-                                className={`w-full px-6 py-3 font-bold text-white rounded-lg ${
+                                disabled={isCurrentLessonComplete || !isReadyToComplete}
+                                className={`w-full px-6 py-3 font-bold text-white rounded-lg transition-all duration-200 ${
                                     isCurrentLessonComplete
                                         ? 'bg-green-600 cursor-default'
-                                        : 'bg-indigo-600 hover:bg-indigo-700'
+                                        : isReadyToComplete
+                                            ? 'bg-indigo-600 hover:bg-indigo-700'
+                                            : 'bg-gray-400 cursor-not-allowed'
                                 }`}
+                                title={!isReadyToComplete && selectedLesson.quiz ? "Complete the quiz first!" : ""}
                             >
                                 {isCurrentLessonComplete ? '✓ Completed' : 'Mark as Complete'}
                             </button>
+                            {selectedLesson.quiz && !selectedLesson.quizAttempt && (
+                                <p className='text-sm text-red-500 mt-2 text-center'>*You must complete the quiz to mark this lesson as complete.</p>
+                            )}
                         </div>
 
-                        {/* --- Q&A Section --- */}
                         <QandASection
                             lesson={selectedLesson}
                             courseId={courseId}
@@ -644,9 +815,17 @@ export default function CourseViewerPage() {
                         />
                     </article>
                 ) : modules.length > 0 ? (
-                    <p>Select a lesson from the outline to begin.</p>
+                    <div className='text-center mt-20 p-8 border rounded-lg shadow-md bg-white'>
+                        <p className='text-xl font-medium text-gray-700'>
+                            👋 Select a **lesson** from the **Course Outline** on the left to begin your journey.
+                        </p>
+                    </div>
                 ) : (
-                    <p>The instructor has not added any content to this course yet.</p>
+                    <div className='text-center mt-20 p-8 border rounded-lg shadow-md bg-yellow-50'>
+                        <p className='text-xl font-medium text-gray-700'>
+                            The instructor has not added any content to this course yet. Time for a coffee break?
+                        </p>
+                    </div>
                 )}
             </main>
         </div>

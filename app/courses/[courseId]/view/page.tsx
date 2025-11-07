@@ -50,6 +50,10 @@ interface QuizAttempt {
     answers: { [key: number]: number };
     submittedAt: any;
 }
+
+/**
+ * @interface Lesson - UPDATED with videoUrl
+ */
 interface Lesson {
     id: string;
     title: string;
@@ -58,6 +62,7 @@ interface Lesson {
     quiz?: Quiz;
     quizAttempt?: QuizAttempt | null;
     sandboxUrl?: string;
+    videoUrl?: string; // NEW: Added video URL support
 }
 interface Module {
     id: string;
@@ -412,7 +417,7 @@ export default function CourseViewerPage() {
             const instructorIds = (courseDocData?.instructorIds as string[] | undefined) || [];
             setIsInstructor(instructorIds.includes(user.uid));
 
-            // 3. Fetch modules and lessons (including quizzes)
+            // 3. Fetch modules and lessons (including quizzes and the new videoUrl)
             const modulesSnapshot = await getDocs(
                 query(collection(db, 'courses', courseId, 'modules'), orderBy('createdAt'))
             );
@@ -527,6 +532,7 @@ export default function CourseViewerPage() {
                                 title: lessonData.title,
                                 content: lessonData.content,
                                 sandboxUrl: lessonData.sandboxUrl,
+                                videoUrl: lessonData.videoUrl, // Include the new videoUrl
                                 qanda: qandaList,
                                 quiz: selectedQuiz,
                                 quizAttempt: attempt,
@@ -613,11 +619,11 @@ export default function CourseViewerPage() {
                 prevModules.map((mod) =>
                     mod.id === currentModuleId
                         ? {
-                              ...mod,
-                              lessons: mod.lessons.map((l) =>
-                                  l.id === selectedLesson.id ? { ...l, quizAttempt: attempt } : l
-                              ),
-                          }
+                            ...mod,
+                            lessons: mod.lessons.map((l) =>
+                                l.id === selectedLesson.id ? { ...l, quizAttempt: attempt } : l
+                            ),
+                        }
                         : mod
                 )
             );
@@ -661,8 +667,8 @@ export default function CourseViewerPage() {
         enrollmentData?.completedItems?.includes(selectedLesson?.id || '') ?? false;
 
     const isReadyToComplete = selectedLesson &&
-                             (!selectedLesson.quiz || quizAttempt) &&
-                             !isCurrentLessonComplete;
+        (!selectedLesson.quiz || quizAttempt) &&
+        !isCurrentLessonComplete;
 
     useEffect(() => {
         if (authLoading) return;
@@ -700,133 +706,133 @@ export default function CourseViewerPage() {
                 <div className="mb-6">
                     <div className="flex justify-between items-center mb-1">
                         <span className="text-sm font-medium text-gray-700">Your Progress</span>
-                        <span className="text-sm font-medium text-gray-700">
-                            {courseProgress}%
-                        </span>
+                        <span className="text-sm font-bold text-blue-600">{courseProgress}%</span>
                     </div>
                     <ProgressBar progress={courseProgress} />
                 </div>
 
                 <nav className="space-y-4">
-                {modules.map((module) => (
-                    <div key={module.id} className="border-b pb-2">
-                        <h3 className="font-semibold text-gray-800 mb-2">{module.title}</h3>
-                        <ul className="space-y-1">
-                            {module.lessons.map((lesson) => (
-                                <li key={lesson.id}>
-                                    <button
-                                        onClick={() => handleLessonSelect(lesson, module.id)}
-                                        className={`w-full text-left p-2 rounded-md flex justify-between items-center text-sm transition-colors duration-150 ${
-                                            selectedLesson?.id === lesson.id
-                                                ? 'bg-indigo-100 text-indigo-700 font-bold border-l-4 border-indigo-500'
-                                                : 'hover:bg-gray-200'
-                                        }`}
-                                    >
-                                        <span className="truncate pr-2">{lesson.title}</span>
-                                        <div className="flex items-center gap-2 flex-shrink-0">
-                                            {lesson.sandboxUrl && (
-                                                <span title="Interactive Lab" className="text-xs font-bold text-purple-800 bg-purple-200 px-2 py-1 rounded-full">
-                                                    Lab
-                                                </span>
-                                            )}
-                                            {lesson.quiz && (
-                                                <span title="Quiz" className="text-xs font-bold text-blue-800 bg-blue-200 px-2 py-1 rounded-full">
-                                                    Quiz
-                                                </span>
-                                            )}
-                                            {enrollmentData?.completedItems?.includes(lesson.id) && (
-                                                <span title="Completed" className="text-xs font-bold text-green-800 bg-green-200 px-2 py-1 rounded-full">
-                                                    Done
-                                                </span>
-                                            )}
-                                        </div>
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                ))}
+                    {modules.map(module => (
+                        <div key={module.id}>
+                            <h3 className="font-semibold text-gray-800 mb-2">{module.title}</h3>
+                            <ul className="space-y-1">
+                                {module.lessons.map(lesson => (
+                                    <li key={lesson.id}>
+                                        <button onClick={() => handleLessonSelect(lesson, module.id)} className={`w-full text-left p-2 rounded-md flex justify-between items-center text-sm ${selectedLesson?.id === lesson.id ? 'bg-indigo-100 text-indigo-700 font-bold' : 'hover:bg-gray-200'}`}>
+                                            <span>{lesson.title}</span>
+                                            <div className="flex items-center gap-2">
+                                                {/* --- NEW VIDEO BADGE --- */}
+                                                {lesson.videoUrl && ( <span className="text-xs font-bold text-red-800 bg-red-200 px-2 py-1 rounded-full"> Video </span> )}
+                                                {lesson.sandboxUrl && ( <span className="text-xs font-bold text-purple-800 bg-purple-200 px-2 py-1 rounded-full"> Lab </span> )}
+                                                {lesson.quiz && ( <span className="text-xs font-bold text-blue-800 bg-blue-200 px-2 py-1 rounded-full"> Quiz </span> )}
+                                                {enrollmentData?.completedItems?.includes(lesson.id) && (
+                                                    <span className="text-xs font-bold text-green-800 bg-green-200 px-2 py-1 rounded-full"> Done </span>
+                                                )}
+                                            </div>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))}
                 </nav>
             </aside>
-
+            
             <main className="w-3/4 p-8 overflow-y-auto h-screen-minus-header">
                 {selectedLesson ? (
                     <article>
                         <h1 className="text-4xl font-bold mb-6">{selectedLesson.title}</h1>
-                        <div className="prose lg:prose-xl max-w-none">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                {selectedLesson.content}
-                            </ReactMarkdown>
-                        </div>
 
-                        {selectedLesson.sandboxUrl && (
-                            <div className="mt-12 pt-8 border-t">
-                                <h2 className="text-2xl font-bold mb-4">Interactive Lab</h2>
-                                <iframe
-                                    src={selectedLesson.sandboxUrl}
-                                    className="w-full h-[600px] border-0 rounded-md overflow-hidden shadow-lg"
-                                    title="Coding Sandbox"
-                                    allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
-                                    sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"
-                                ></iframe>
+                        {/* --- NEW VIDEO PLAYER SECTION --- */}
+                        {selectedLesson.videoUrl && (
+                            <div className="mb-8 shadow-lg">
+                                <video
+                                    key={selectedLesson.id} // Add key to force re-render on lesson change
+                                    controls
+                                    src={selectedLesson.videoUrl}
+                                    className="w-full rounded-lg bg-black"
+                                >
+                                    Your browser does not support the video tag.
+                                </video>
                             </div>
                         )}
 
-                        {/* --- Quiz --- */}
-                        {selectedLesson.quiz && (
-                            selectedLesson.quizAttempt ? (
-                                <QuizResult attempt={selectedLesson.quizAttempt} quiz={selectedLesson.quiz} />
-                            ) : (
-                                <QuizTaker
-                                    quiz={selectedLesson.quiz}
-                                    courseId={courseId}
-                                    moduleId={currentModuleId!}
-                                    lessonId={selectedLesson.id}
-                                    onQuizCompleted={handleQuizCompleted}
-                                />
-                            )
+                        <div className="prose lg:prose-xl max-w-none">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedLesson.content}</ReactMarkdown>
+                        </div>
+                        
+                        {selectedLesson.sandboxUrl && (
+                            <div className="mt-12 pt-8 border-t">
+                                <h2 className="text-2xl font-bold mb-4">Interactive Lab</h2>
+                                <p className="text-gray-600 mb-4">Launch this interactive coding sandbox to practice!</p>
+                                <Link
+                                    href={selectedLesson.sandboxUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-block px-6 py-3 font-bold text-white bg-purple-600 rounded-lg hover:bg-purple-700"
+                                >
+                                    Launch Sandbox
+                                </Link>
+                            </div>
                         )}
 
-                        {/* --- Mark Complete Button --- */}
-                        <div className="mt-12 pt-8 border-t">
+                        {/* Quiz Section */}
+                        {selectedLesson.quiz && (
+                            <>
+                                {selectedLesson.quiz.questions.length > 0 ? (
+                                    quizAttempt ? (
+                                        <QuizResult
+                                            attempt={quizAttempt}
+                                            quiz={selectedLesson.quiz}
+                                        />
+                                    ) : (
+                                        <QuizTaker
+                                            quiz={selectedLesson.quiz}
+                                            courseId={courseId}
+                                            moduleId={currentModuleId!}
+                                            lessonId={selectedLesson.id}
+                                            onQuizCompleted={handleQuizCompleted}
+                                        />
+                                    )
+                                ) : (
+                                    <div className="mt-12 pt-8 border-t">
+                                        <p className="text-lg text-gray-500">
+                                            Quiz data is available, but no questions were found.
+                                        </p>
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        {/* Q&A Section */}
+                        {currentModuleId && (
+                            <QandASection
+                                lesson={selectedLesson}
+                                courseId={courseId}
+                                moduleId={currentModuleId}
+                            />
+                        )}
+
+                        <div className="mt-12 pt-8 border-t flex justify-between items-center">
                             <button
                                 onClick={handleMarkComplete}
-                                disabled={isCurrentLessonComplete || !isReadyToComplete}
-                                className={`w-full px-6 py-3 font-bold text-white rounded-lg transition-all duration-200 ${
-                                    isCurrentLessonComplete
-                                        ? 'bg-green-600 cursor-default'
-                                        : isReadyToComplete
-                                            ? 'bg-indigo-600 hover:bg-indigo-700'
-                                            : 'bg-gray-400 cursor-not-allowed'
+                                disabled={!isReadyToComplete}
+                                className={`px-6 py-3 font-bold text-white rounded-lg transition ${
+                                    isReadyToComplete
+                                        ? 'bg-indigo-600 hover:bg-indigo-700'
+                                        : 'bg-gray-400 cursor-not-allowed'
                                 }`}
-                                title={!isReadyToComplete && selectedLesson.quiz ? "Complete the quiz first!" : ""}
                             >
-                                {isCurrentLessonComplete ? '✓ Completed' : 'Mark as Complete'}
+                                {isCurrentLessonComplete ? 'Lesson Completed' : 'Mark as Complete'}
                             </button>
-                            {selectedLesson.quiz && !selectedLesson.quizAttempt && (
-                                <p className='text-sm text-red-500 mt-2 text-center'>*You must complete the quiz to mark this lesson as complete.</p>
+                            {!isCurrentLessonComplete && selectedLesson.quiz && !quizAttempt && (
+                                <p className="text-sm text-red-500">
+                                    Complete the quiz to enable 'Mark as Complete'.
+                                </p>
                             )}
                         </div>
-
-                        <QandASection
-                            lesson={selectedLesson}
-                            courseId={courseId}
-                            moduleId={currentModuleId!}
-                        />
                     </article>
-                ) : modules.length > 0 ? (
-                    <div className='text-center mt-20 p-8 border rounded-lg shadow-md bg-white'>
-                        <p className='text-xl font-medium text-gray-700'>
-                            👋 Select a **lesson** from the **Course Outline** on the left to begin your journey.
-                        </p>
-                    </div>
-                ) : (
-                    <div className='text-center mt-20 p-8 border rounded-lg shadow-md bg-yellow-50'>
-                        <p className='text-xl font-medium text-gray-700'>
-                            The instructor has not added any content to this course yet. Time for a coffee break?
-                        </p>
-                    </div>
-                )}
+                ) : ( <p className="text-2xl text-gray-500">Select a lesson from the outline to begin your learning journey!</p> )}
             </main>
         </div>
     );

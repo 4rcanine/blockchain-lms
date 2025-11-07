@@ -19,6 +19,7 @@ import {
 import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
 import AddContentModal from '@/components/AddContentModal';
+import VideoUploader from '@/components/VideoUploader'; // ✅ NEW import
 import React from 'react';
 import Link from 'next/link';
 
@@ -52,6 +53,7 @@ interface Lesson {
   qanda?: QandA[];
   quiz?: Quiz | null;
   sandboxUrl?: string;
+  videoUrl?: string; // ✅ Added video URL
   createdAt?: any;
 }
 
@@ -61,25 +63,18 @@ interface Module {
   lessons: Lesson[];
 }
 
-/* ---------------------------- Utility: Course Coloring (Locally Defined) ----------------------------- */
+/* ---------------------------- Utility: Course Coloring ----------------------------- */
 
-// NOTE: This array MUST match the colors/order in the Student Calendar page to ensure consistency.
 const COLOR_MAP = [
-  { hex: '#6366F1', classes: 'text-indigo-700 bg-indigo-100 border-indigo-300' }, // Indigo
-  { hex: '#10B981', classes: 'text-emerald-700 bg-emerald-100 border-emerald-300' }, // Emerald
-  { hex: '#8B5CF6', classes: 'text-purple-700 bg-purple-100 border-purple-300' }, // Violet
-  { hex: '#F59E0B', classes: 'text-amber-700 bg-amber-100 border-amber-300' }, // Amber
-  { hex: '#EC4899', classes: 'text-pink-700 bg-pink-100 border-pink-300' }, // Pink
-  { hex: '#06B6D4', classes: 'text-cyan-700 bg-cyan-100 border-cyan-300' }, // Cyan
-  { hex: '#EF4444', classes: 'text-red-700 bg-red-100 border-red-300' }, // Red
+  { hex: '#6366F1', classes: 'text-indigo-700 bg-indigo-100 border-indigo-300' },
+  { hex: '#10B981', classes: 'text-emerald-700 bg-emerald-100 border-emerald-300' },
+  { hex: '#8B5CF6', classes: 'text-purple-700 bg-purple-100 border-purple-300' },
+  { hex: '#F59E0B', classes: 'text-amber-700 bg-amber-100 border-amber-300' },
+  { hex: '#EC4899', classes: 'text-pink-700 bg-pink-100 border-pink-300' },
+  { hex: '#06B6D4', classes: 'text-cyan-700 bg-cyan-100 border-cyan-300' },
+  { hex: '#EF4444', classes: 'text-red-700 bg-red-100 border-red-300' },
 ];
 
-/**
- * Generates a consistent color object (hex and Tailwind classes) based on a string ID.
- * The resulting index is always the same for the same input ID.
- * @param id The string ID to hash (e.g., courseId)
- * @returns The color object containing both hex and Tailwind class string.
- */
 const getColorForId = (id: string): (typeof COLOR_MAP)[number] => {
   let hash = 0;
   for (let i = 0; i < id.length; i++) {
@@ -88,7 +83,6 @@ const getColorForId = (id: string): (typeof COLOR_MAP)[number] => {
   const index = Math.abs(hash) % COLOR_MAP.length;
   return COLOR_MAP[index];
 };
-
 
 /* ---------------------------- AddLessonForm ----------------------------- */
 const AddLessonForm = ({
@@ -103,41 +97,41 @@ const AddLessonForm = ({
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [sandboxUrl, setSandboxUrl] = useState('');
+  const [videoUrl, setVideoUrl] = useState(''); // ✅ NEW
+  const [isVideoUploading, setIsVideoUploading] = useState(false); // ✅ NEW
   const [error, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
     if (!title.trim()) {
       setError('A lesson title is required.');
       return;
     }
-    try {
-      const lessonsRef = collection(
-        db,
-        'courses',
-        courseId,
-        'modules',
-        moduleId,
-        'lessons'
-      );
+    if (isVideoUploading) {
+      setError('Please wait for the video to finish uploading.');
+      return;
+    }
 
+    try {
+      const lessonsRef = collection(db, 'courses', courseId, 'modules', moduleId, 'lessons');
       const newLessonRef = await addDoc(lessonsRef, {
         title: title.trim(),
         content,
         sandboxUrl: sandboxUrl.trim() || null,
+        videoUrl: videoUrl || null, // ✅ Save video URL
         createdAt: serverTimestamp(),
       });
 
       const moduleRef = doc(db, 'courses', courseId, 'modules', moduleId);
-      await updateDoc(moduleRef, {
-        lessons: arrayUnion(newLessonRef.id),
-      });
+      await updateDoc(moduleRef, { lessons: arrayUnion(newLessonRef.id) });
 
       setTitle('');
       setContent('');
       setSandboxUrl('');
+      setVideoUrl('');
       onLessonAdded();
     } catch (err) {
       console.error(err);
@@ -155,19 +149,30 @@ const AddLessonForm = ({
           }}
         />
       )}
-      <form
-        onSubmit={handleSubmit}
-        className="my-4 p-4 bg-gray-50 border-2 border-dashed rounded-md"
-      >
-        <h4 className="font-semibold mb-2 text-gray-700">Add a New Lesson</h4>
+      <form onSubmit={handleSubmit} className="my-4 p-4 bg-gray-50 border-2 border-dashed rounded-md space-y-4">
+        <h4 className="font-semibold mb-2 text-gray-700">Add a New Lesson to this Module</h4>
         <input
           type="text"
           placeholder="Lesson Title*"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="w-full p-2 mb-2 border rounded-md"
+          className="w-full p-2 border rounded-md"
           required
         />
+
+        {/* ✅ NEW VideoUploader Component */}
+        <VideoUploader
+          onUploadStart={() => setIsVideoUploading(true)}
+          onUploadComplete={(url) => {
+            setVideoUrl(url);
+            setIsVideoUploading(false);
+          }}
+          onUploadError={() => {
+            setError('Video upload failed. Please try again.');
+            setIsVideoUploading(false);
+          }}
+        />
+
         <textarea
           placeholder="Lesson Content (markdown supported)"
           value={content}
@@ -175,10 +180,9 @@ const AddLessonForm = ({
           rows={6}
           className="w-full p-2 border rounded-md"
         />
-        <div className="mt-3">
-          <label className="block text-sm font-medium text-gray-700">
-            Interactive Sandbox URL (Optional)
-          </label>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Interactive Sandbox URL (Optional)</label>
           <input
             type="url"
             placeholder="https://stackblitz.com/..."
@@ -186,11 +190,10 @@ const AddLessonForm = ({
             onChange={(e) => setSandboxUrl(e.target.value)}
             className="w-full p-2 mt-1 border rounded-md"
           />
-          <p className="text-xs text-gray-500 mt-1">
-            Example: Replit embed or other sandbox share URL.
-          </p>
         </div>
+
         {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+
         <div className="flex justify-between items-center mt-4">
           <button
             type="button"
@@ -201,9 +204,10 @@ const AddLessonForm = ({
           </button>
           <button
             type="submit"
-            className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700"
+            disabled={isVideoUploading}
+            className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
           >
-            Save Lesson
+            {isVideoUploading ? 'Uploading Video...' : 'Save Lesson'}
           </button>
         </div>
       </form>

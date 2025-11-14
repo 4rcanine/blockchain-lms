@@ -93,11 +93,14 @@ const CourseCard = ({
   return (
     <div className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow flex flex-col">
       {course.imageUrl ? (
-        <img
-          src={course.imageUrl}
-          alt={course.title}
-          className="w-full h-40 object-cover rounded-t-lg"
-        />
+        // Wrap image with Link
+        <Link href={linkHref}>
+          <img
+            src={course.imageUrl}
+            alt={course.title}
+            className="w-full h-40 object-cover rounded-t-lg"
+          />
+        </Link>
       ) : (
         <div className="w-full h-40 bg-gray-200 rounded-t-lg flex items-center justify-center">
           <span className="text-gray-400">No Image</span>
@@ -105,7 +108,11 @@ const CourseCard = ({
       )}
 
       <div className="p-4 flex flex-col flex-grow">
-        <h3 className="font-bold text-lg mb-2">{course.title}</h3>
+        {/* === UPDATED: Wrap <h3> with <Link> === */}
+        <Link href={linkHref} className="hover:underline">
+          <h3 className="font-bold text-lg mb-2">{course.title}</h3>
+        </Link>
+        {/* ================================== */}
 
         {course.tags && course.tags.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4">

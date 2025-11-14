@@ -8,6 +8,7 @@ const sidebarNavLinks = [
     { name: 'My Profile', href: '/profile' },
     { name: 'Calendar', href: '/calendar' },
     { name: 'Course Catalog', href: '/courses' },
+    { name: 'Settings', href: '/settings' },
 ];
 
 export default function StudentLayout({

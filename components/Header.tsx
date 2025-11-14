@@ -4,8 +4,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'firebase/auth';
-import { auth } from '../firebase/config';
-import useAuth from '../hooks/useAuth';
+import { auth } from '@/firebase/config';
+import useAuth from '@/hooks/useAuth';
+import Image from 'next/image';
 
 export default function Header() {
   const { user, loading } = useAuth();
@@ -25,9 +26,21 @@ export default function Header() {
     <header className="w-full bg-white shadow-md">
       <nav className="container mx-auto px-6 py-3 flex justify-between items-center">
         <div className="flex items-center space-x-6">
-          <Link href="/" className="text-xl font-bold text-indigo-600">
-            BlockchainLMS
+
+          <Link href="/dashboard" className="flex items-center">
+            {/* ---  --- */}
+            <Image
+              src="/logo5.png"
+              alt="BlockchainLMS Logo"
+              width={150}  
+              height={40} 
+              priority
+              
+              className="h-15 w-auto" // Set height 
+            />
           </Link>
+          
+
         </div>
 
         <div className="flex items-center space-x-4">
@@ -45,7 +58,6 @@ export default function Header() {
                 Logout
               </button>
 
-              {/* --- Profile Picture --- */}
               <Link href="/profile">
                 {user.photoURL ? (
                   <img

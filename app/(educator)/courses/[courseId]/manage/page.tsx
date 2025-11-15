@@ -1,4 +1,4 @@
-//app/(educator)/courses/[courseId]/manage/page.tsx
+// app/(educator)/courses/[courseId]/manage/page.tsx
 'use client';
 import { useEffect, useState } from 'react';
 import {
@@ -15,11 +15,12 @@ import {
   arrayUnion,
   deleteDoc,
   writeBatch,
+  where, // ✅ NEW import: where
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
 import AddContentModal from '@/components/AddContentModal';
-import VideoUploader from '@/components/VideoUploader'; // ✅ NEW import
+import VideoUploader from '@/components/VideoUploader';
 import React from 'react';
 import Link from 'next/link';
 
@@ -53,7 +54,7 @@ interface Lesson {
   qanda?: QandA[];
   quiz?: Quiz | null;
   sandboxUrl?: string;
-  videoUrl?: string; // ✅ Added video URL
+  videoUrl?: string;
   createdAt?: any;
 }
 
@@ -97,8 +98,8 @@ const AddLessonForm = ({
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [sandboxUrl, setSandboxUrl] = useState('');
-  const [videoUrl, setVideoUrl] = useState(''); // ✅ NEW
-  const [isVideoUploading, setIsVideoUploading] = useState(false); // ✅ NEW
+  const [videoUrl, setVideoUrl] = useState('');
+  const [isVideoUploading, setIsVideoUploading] = useState(false);
   const [error, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -121,7 +122,7 @@ const AddLessonForm = ({
         title: title.trim(),
         content,
         sandboxUrl: sandboxUrl.trim() || null,
-        videoUrl: videoUrl || null, // ✅ Save video URL
+        videoUrl: videoUrl || null,
         createdAt: serverTimestamp(),
       });
 
@@ -160,7 +161,7 @@ const AddLessonForm = ({
           required
         />
 
-        {/* ✅ NEW VideoUploader Component */}
+        {/* VideoUploader Component */}
         <VideoUploader
           onUploadStart={() => setIsVideoUploading(true)}
           onUploadComplete={(url) => {
@@ -472,6 +473,8 @@ export default function ManageCoursePage() {
     useState<string | null>(null);
   const [addingQuizToLessonId, setAddingQuizToLessonId] =
     useState<string | null>(null);
+  // ✅ NEW STATE: from second snippet
+  const [pendingEnrollmentCount, setPendingEnrollmentCount] = useState(0); 
 
   const deleteCourseAndCollections = async () => {
     if (!courseId) return;
@@ -524,13 +527,20 @@ export default function ManageCoursePage() {
         // delete module doc
         batch.delete(moduleRef);
       }
-
-      const enrollmentsSnapshot = await getDocs(
+      
+      // Delete enrollment requests
+      const enrollmentRequestsSnapshot = await getDocs(
         collection(courseRef, 'enrollmentRequests')
       );
-      enrollmentsSnapshot.docs.forEach((eDoc) =>
-        batch.delete(doc(courseRef, 'enrollments', eDoc.id))
+      enrollmentRequestsSnapshot.docs.forEach((eDoc) =>
+        batch.delete(doc(courseRef, 'enrollmentRequests', eDoc.id))
       );
+      
+      // The original code had a typo or outdated collection name: 
+      // const enrollmentsSnapshot = await getDocs(collection(courseRef, 'enrollmentRequests'));
+      // enrollmentsSnapshot.docs.forEach((eDoc) => batch.delete(doc(courseRef, 'enrollments', eDoc.id)));
+      // Assuming 'enrollmentRequests' is the correct collection, I've corrected the batch delete above. 
+      // If 'enrollments' (approved ones) also needs deletion, a separate snapshot is needed.
 
       // delete course doc
       batch.delete(courseRef);
@@ -556,6 +566,7 @@ export default function ManageCoursePage() {
       const courseSnap = await getDoc(courseDocRef);
       if (courseSnap.exists()) setCourse(courseSnap.data() as { title: string });
 
+      // Fetch Modules and Lessons
       const modulesSnapshot = await getDocs(
         query(
           collection(db, 'courses', courseId, 'modules'),
@@ -669,6 +680,15 @@ export default function ManageCoursePage() {
 
       setModules(modulesList);
       setError(null);
+      
+      // ✅ NEW: Fetch pending enrollment count
+      const enrollmentRequestsQuery = query(
+        collection(db, 'courses', courseId, 'enrollmentRequests'),
+        where('status', '==', 'pending')
+      );
+      const enrollmentRequestsSnap = await getDocs(enrollmentRequestsQuery);
+      setPendingEnrollmentCount(enrollmentRequestsSnap.size);
+      
     } catch (err: any) {
       console.error(err);
       setError(err?.message || 'Failed to load course data.');
@@ -712,9 +732,15 @@ export default function ManageCoursePage() {
         <div className="flex gap-2">
           <Link
             href={`/courses/${courseId}/enrollments`}
-            className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md"
+            className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md relative"
           >
             Enrollments
+            {/* Display pending enrollment count */}
+            {pendingEnrollmentCount > 0 && (
+              <span className="absolute -top-1 -right-1 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-red-100 bg-red-600 rounded-full">
+                {pendingEnrollmentCount}
+              </span>
+            )}
           </Link>
           <Link
             href={`/courses/${courseId}/analytics`}

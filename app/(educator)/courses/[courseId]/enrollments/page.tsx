@@ -1,3 +1,5 @@
+// app/(educator)/courses/[courseId]/enrollments/page.tsx
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -70,8 +72,18 @@ export default function EnrollmentsPage() {
       const userDocRef = doc(db, 'users', userId);
       const batch = writeBatch(db);
 
-      // Update request status
-      batch.update(requestDocRef, { status: status });
+      // --- START FIX: Update request status and notification flag ---
+      const requestUpdateData: { status: 'enrolled' | 'rejected'; acknowledgedByStudent?: boolean } = {
+        status: status,
+      };
+
+      if (status === 'enrolled') {
+        // This is the CRITICAL line to trigger the student notification
+        requestUpdateData.acknowledgedByStudent = false; 
+      }
+      
+      batch.update(requestDocRef, requestUpdateData);
+      // --- END FIX ---
 
       // Update user's enrolledCourses
       if (status === 'enrolled') {
@@ -127,15 +139,19 @@ export default function EnrollmentsPage() {
       const userDocRef = doc(db, 'users', userId);
       const batch = writeBatch(db);
 
+      // --- START FIX: Set status and notification flag on manual add ---
       batch.set(
         requestDocRef,
         {
           status: 'enrolled',
           studentEmail: addEmail.trim(),
           addedAt: serverTimestamp(),
+          // This is the CRITICAL line to trigger the student notification
+          acknowledgedByStudent: false, 
         },
         { merge: true }
       );
+      // --- END FIX ---
 
       batch.update(userDocRef, {
         enrolledCourses: arrayUnion(courseId),

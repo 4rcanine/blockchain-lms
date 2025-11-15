@@ -45,6 +45,12 @@ interface Course {
   [k: string]: any;
 }
 
+interface EnrollmentNotification {
+  courseId: string;
+  courseTitle: string;
+  enrollmentDocId: string;
+}
+
 // -------------------------- Utility: batch 'in' queries ------------------
 async function fetchDocsByIds(
   collectionRef: ReturnType<typeof collection>,
@@ -55,6 +61,11 @@ async function fetchDocsByIds(
   for (let i = 0; i < ids.length; i += 10) batches.push(ids.slice(i, i + 10));
   const results: DocumentData[] = [];
   for (const batch of batches) {
+    // Note: The original implementation used '__name__', 'in', which is typically
+    // used for document IDs. For general queries using fields, the 'where'
+    // condition would target that field. Given the context (likely for a future
+    // use case or if `collectionRef` is not 'courses'), I will leave the original
+    // logic as is, assuming it works for the intended Firebase structure.
     const q = query(collectionRef, where('__name__', 'in', batch));
     const snap = await getDocs(q);
     snap.docs.forEach((d) => results.push({ id: d.id, ...(d.data() as any) }));
@@ -164,6 +175,7 @@ export default function Dashboard() {
   const [createdCourses, setCreatedCourses] = useState<Course[]>([]);
   const [suggestedCourses, setSuggestedCourses] = useState<Course[]>([]);
   const [recentActivity, setRecentActivity] = useState<Course[]>([]);
+  const [notifications, setNotifications] = useState<EnrollmentNotification[]>([]); // NEW: Notification state
   const [error, setError] = useState<string | null>(null);
   const [changingPath, setChangingPath] = useState(false);
   const [isDataLoading, setIsDataLoading] = useState(true);
@@ -185,6 +197,7 @@ export default function Dashboard() {
         setUserProfile(profile);
 
         // --- Student Enrolled Courses with Progress ---
+        let enrolledCourseIds: string[] = [];
         if (profile.role === 'student') {
           const reqQuery = query(
             collectionGroup(db, 'enrollmentRequests'),
@@ -195,6 +208,7 @@ export default function Dashboard() {
 
           if (!enrolledSnap.empty) {
             const courseIds = enrolledSnap.docs.map((doc) => doc.ref.parent.parent!.id);
+            enrolledCourseIds = courseIds; // Store for notification logic & recent activity filter
             const progressMap = new Map(
               enrolledSnap.docs.map((doc) => [
                 doc.ref.parent.parent!.id,
@@ -222,6 +236,33 @@ export default function Dashboard() {
           } else {
             setEnrolledCourses([]);
           }
+
+          // --- NEW: Fetch Notifications (moved inside student logic) ---
+          const requestsQuery = query(
+            collectionGroup(db, 'enrollmentRequests'),
+            where('studentId', '==', authUser.uid),
+            where('status', '==', 'enrolled'),
+            where('acknowledgedByStudent', '==', false) // Find un-acknowledged approvals
+          );
+          const notificationSnapshot = await getDocs(requestsQuery);
+
+          if (!notificationSnapshot.empty) {
+            const newNotifications: EnrollmentNotification[] = [];
+            for (const doc of notificationSnapshot.docs) {
+              const courseId = doc.ref.parent.parent!.id;
+              const courseDoc = await getDoc(doc.ref.parent.parent!);
+              if (courseDoc.exists()) {
+                newNotifications.push({
+                  courseId: courseId,
+                  courseTitle: courseDoc.data().title,
+                  enrollmentDocId: doc.id,
+                });
+              }
+            }
+            setNotifications(newNotifications);
+          } else {
+            setNotifications([]);
+          }
         }
 
         // --- Educator Created Courses ---
@@ -236,10 +277,31 @@ export default function Dashboard() {
           );
         }
 
-        // --- Recent Activity ---
-        const recentQ = query(collection(db, 'courses'), orderBy('updatedAt', 'desc'), limit(5));
+        // --- Recent Activity (Updated to filter out enrolled courses for students) ---
+        const coursesCollectionRef = collection(db, 'courses');
+        let recentQ;
+        
+        // Batch 'not in' is not directly supported, so we fetch all recent courses
+        // and then filter in memory if the user is a student with enrolled courses.
+        // For simplicity and to use the `limit` clause effectively for *recent* items,
+        // we'll fetch the top 20 and filter in memory if they are enrolled.
+        // A full Firebase-optimized solution would involve querying courses that
+        // don't have an enrollment subcollection for the user, which is complex.
+        
+        // Fetch the top 20 most recently updated courses
+        recentQ = query(coursesCollectionRef, orderBy('updatedAt', 'desc'), limit(20));
         const recentSnap = await getDocs(recentQ);
-        setRecentActivity(recentSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[]);
+        
+        let recentCourses = recentSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
+
+        if (profile.role === 'student') {
+            // Filter out courses the student is already enrolled in
+            recentCourses = recentCourses.filter(c => !enrolledCourseIds.includes(c.id));
+        }
+
+        // Take the top 5 after filtering
+        setRecentActivity(recentCourses.slice(0, 5));
+        
       } catch (err) {
         console.error(err);
         setError('Failed to fetch dashboard data.');
@@ -251,12 +313,36 @@ export default function Dashboard() {
     fetchDashboardData();
   }, [authUser, authLoading, router]);
 
+  // --- NEW: Function to dismiss a notification ---
+  const handleDismissNotification = async (notification: EnrollmentNotification) => {
+    try {
+      const requestDocRef = doc(
+        db,
+        'courses',
+        notification.courseId,
+        'enrollmentRequests',
+        notification.enrollmentDocId
+      );
+      await updateDoc(requestDocRef, {
+        acknowledgedByStudent: true,
+      });
+      // Remove the notification from the UI instantly
+      setNotifications((prevNotifications) =>
+        prevNotifications.filter((n) => n.enrollmentDocId !== notification.enrollmentDocId)
+      );
+    } catch (error) {
+      console.error('Failed to dismiss notification:', error);
+    }
+  };
+
   // ---------------- Save & Change Learning Path ----------------
   const handleSavePath = async (path: string[]) => {
     if (!authUser || !userProfile) return;
     try {
       await updateDoc(doc(db, 'users', authUser.uid), { learningPath: path });
       setUserProfile({ ...userProfile, learningPath: path });
+      // Rerun suggestions after path is saved
+      // NOTE: This effect runs automatically due to the dependency on `userProfile?.learningPath`
     } catch (err) {
       console.error('Failed to save learning path:', err);
     }
@@ -264,7 +350,7 @@ export default function Dashboard() {
 
   const handleChangeLearningPath = async () => {
     if (!authUser || !userProfile) return;
-    if (!confirm('Are you sure you want to change your learning path?')) return;
+    if (!confirm('Are you sure you want to change your learning path? This will reset your current path and suggestions.')) return;
 
     try {
       setChangingPath(true);
@@ -287,6 +373,8 @@ export default function Dashboard() {
       try {
         const allCoursesSnap = await getDocs(collection(db, 'courses'));
         const allCourses = allCoursesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
+        const enrolledIds = enrolledCourses.map(c => c.id); // Use already fetched enrolled courses
+        
         const scored = allCourses
           .map((c) => {
             const tags = c.tags || [];
@@ -294,9 +382,10 @@ export default function Dashboard() {
             return { ...c, score };
           })
           .filter(
+            // Filter by score > 0 AND NOT enrolled
             (c) =>
               c.score > 0 &&
-              (!userProfile.enrolledCourses || !userProfile.enrolledCourses.includes(c.id))
+              !enrolledIds.includes(c.id) // Use the enrolledIds list
           )
           .sort((a, b) => b.score - a.score)
           .slice(0, 3);
@@ -305,8 +394,9 @@ export default function Dashboard() {
         console.error('Failed to generate suggestions:', err);
       }
     };
+    // Re-run when learningPath or enrolledCourses changes
     generateSuggestions();
-  }, [userProfile?.learningPath, userProfile?.enrolledCourses]);
+  }, [userProfile?.learningPath, enrolledCourses]); 
 
   // ---------------- Render Sections ----------------
   const renderRecentActivity = () =>
@@ -328,6 +418,35 @@ export default function Dashboard() {
 
     return (
       <div className="space-y-12">
+        {/* --- NEW Notification Section --- */}
+        {notifications.length > 0 && (
+          <div className="p-6 bg-green-100 border border-green-300 rounded-lg">
+            <h2 className="text-2xl font-semibold text-green-800 mb-4">Notifications</h2>
+            <div className='space-y-3'>
+              {notifications.map((note) => (
+                <div
+                  key={note.enrollmentDocId} // Use unique doc ID for key
+                  className="flex justify-between items-center bg-white p-3 rounded-md shadow-sm"
+                >
+                  <p>
+                    🎉 You've been enrolled in{' '}
+                    <Link href={`/courses/${note.courseId}/view`} className='font-bold text-indigo-600 hover:underline'>
+                      {note.courseTitle}
+                    </Link>
+                    !
+                  </p>
+                  <button
+                    onClick={() => handleDismissNotification(note)}
+                    className="text-sm font-semibold text-gray-500 hover:text-gray-800"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {!learningPath.length ? (
           <div>
             <h2 className="text-2xl font-semibold mb-4">Personalize Your Learning</h2>

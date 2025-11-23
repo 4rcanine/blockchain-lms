@@ -757,23 +757,30 @@ export default function CourseViewerPage() {
                             </div>
                         )}
 
-                        <div className="prose lg:prose-xl max-w-none">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedLesson.content}</ReactMarkdown>
-                        </div>
+                        <div 
+                        className="prose lg:prose-xl max-w-none"
+                        dangerouslySetInnerHTML={{ __html: selectedLesson.content }} 
+                        />
                         
                         {selectedLesson.sandboxUrl && (
-                            <div className="mt-12 pt-8 border-t">
-                                <h2 className="text-2xl font-bold mb-4">Interactive Lab</h2>
-                                <p className="text-gray-600 mb-4">Launch this interactive coding sandbox to practice!</p>
-                                <Link
-                                    href={selectedLesson.sandboxUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-block px-6 py-3 font-bold text-white bg-purple-600 rounded-lg hover:bg-purple-700"
+                        <div className="mt-12 pt-8 border-t">
+                            <h2 className="text-2xl font-bold mb-4">Interactive Lab</h2>
+                            <p className="text-gray-600 mb-4">Practice your code directly below!</p>
+                            
+                            {/* Replaced <Link target="_blank"> with <iframe> for inline embedding */}
+                            <div className="w-full h-[600px] border rounded-lg shadow-xl overflow-hidden bg-white">
+                                <iframe
+                                    src={selectedLesson.sandboxUrl}
+                                    title="Interactive Coding Sandbox"
+                                    className="w-full h-full border-0"
+                                    // Optional: Include necessary 'allow' attributes for full sandbox functionality
+                                    allow="fullscreen; clipboard-read; clipboard-write;"
                                 >
-                                    Launch Sandbox
-                                </Link>
+                                    {/* Fallback content for very old browsers */}
+                                    <p>Your browser does not support embedded frames. Please click <a href={selectedLesson.sandboxUrl} target="_blank" rel="noopener noreferrer">here</a> to open the sandbox.</p>
+                                </iframe>
                             </div>
+                        </div>
                         )}
 
                         {/* Quiz Section */}

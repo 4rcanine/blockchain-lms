@@ -24,6 +24,9 @@ import VideoUploader from '@/components/VideoUploader';
 import React from 'react';
 import Link from 'next/link';
 
+// ✅ NEW import: RichTextEditor
+import RichTextEditor from '@/components/RichTextEditor'; 
+
 /* ------------------------------- Types -------------------------------- */
 interface QandA {
   id: string;
@@ -50,7 +53,7 @@ interface Quiz {
 interface Lesson {
   id: string;
   title: string;
-  content: string;
+  content: string; // Now stores HTML from RichTextEditor
   qanda?: QandA[];
   quiz?: Quiz | null;
   sandboxUrl?: string;
@@ -85,7 +88,7 @@ const getColorForId = (id: string): (typeof COLOR_MAP)[number] => {
   return COLOR_MAP[index];
 };
 
-/* ---------------------------- AddLessonForm ----------------------------- */
+/* ---------------------------- AddLessonForm (UPDATED) ----------------------------- */
 const AddLessonForm = ({
   moduleId,
   courseId,
@@ -96,12 +99,13 @@ const AddLessonForm = ({
   onLessonAdded: () => void;
 }) => {
   const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
+  const [content, setContent] = useState(''); // This will now store HTML
   const [sandboxUrl, setSandboxUrl] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [isVideoUploading, setIsVideoUploading] = useState(false);
   const [error, setError] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // NOTE: AddContentModal is no longer needed since RichTextEditor handles content creation/upload,
+  // so `isModalOpen` state is removed.
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,7 +124,7 @@ const AddLessonForm = ({
       const lessonsRef = collection(db, 'courses', courseId, 'modules', moduleId, 'lessons');
       const newLessonRef = await addDoc(lessonsRef, {
         title: title.trim(),
-        content,
+        content: content, // Save the HTML content directly
         sandboxUrl: sandboxUrl.trim() || null,
         videoUrl: videoUrl || null,
         createdAt: serverTimestamp(),
@@ -141,78 +145,64 @@ const AddLessonForm = ({
   };
 
   return (
-    <>
-      {isModalOpen && (
-        <AddContentModal
-          onClose={() => setIsModalOpen(false)}
-          onContentAdded={(markdown) => {
-            setContent((prev) => `${prev}\n${markdown}`);
-          }}
+    <form onSubmit={handleSubmit} className="my-4 p-4 bg-gray-50 border-2 border-dashed rounded-md space-y-4">
+      <h4 className="font-semibold mb-2 text-gray-700">Add a New Lesson to this Module</h4>
+      <input
+        type="text"
+        placeholder="Lesson Title*"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        className="w-full p-2 border rounded-md"
+        required
+      />
+
+      {/* --- REPLACEMENT FOR TEXTAREA AND AddContentModal BUTTON --- */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Lesson Content</label>
+        <RichTextEditor
+          content={content}
+          onUpdate={setContent}
         />
-      )}
-      <form onSubmit={handleSubmit} className="my-4 p-4 bg-gray-50 border-2 border-dashed rounded-md space-y-4">
-        <h4 className="font-semibold mb-2 text-gray-700">Add a New Lesson to this Module</h4>
+      </div>
+      {/* ----------------------------------------------------------- */}
+
+      {/* VideoUploader Component */}
+      <VideoUploader
+        onUploadStart={() => setIsVideoUploading(true)}
+        onUploadComplete={(url) => {
+          setVideoUrl(url);
+          setIsVideoUploading(false);
+        }}
+        onUploadError={() => {
+          setError('Video upload failed. Please try again.');
+          setIsVideoUploading(false);
+        }}
+      />
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Interactive Sandbox URL (Optional)</label>
         <input
-          type="text"
-          placeholder="Lesson Title*"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="w-full p-2 border rounded-md"
-          required
+          type="url"
+          placeholder="https://stackblitz.com/..."
+          value={sandboxUrl}
+          onChange={(e) => setSandboxUrl(e.target.value)}
+          className="w-full p-2 mt-1 border rounded-md"
         />
+      </div>
 
-        {/* VideoUploader Component */}
-        <VideoUploader
-          onUploadStart={() => setIsVideoUploading(true)}
-          onUploadComplete={(url) => {
-            setVideoUrl(url);
-            setIsVideoUploading(false);
-          }}
-          onUploadError={() => {
-            setError('Video upload failed. Please try again.');
-            setIsVideoUploading(false);
-          }}
-        />
+      {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
 
-        <textarea
-          placeholder="Lesson Content (markdown supported)"
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows={6}
-          className="w-full p-2 border rounded-md"
-        />
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Interactive Sandbox URL (Optional)</label>
-          <input
-            type="url"
-            placeholder="https://stackblitz.com/..."
-            value={sandboxUrl}
-            onChange={(e) => setSandboxUrl(e.target.value)}
-            className="w-full p-2 mt-1 border rounded-md"
-          />
-        </div>
-
-        {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
-
-        <div className="flex justify-between items-center mt-4">
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="px-4 py-2 text-sm font-semibold text-indigo-600 bg-indigo-100 rounded-md hover:bg-indigo-200"
-          >
-            Upload Image/File
-          </button>
-          <button
-            type="submit"
-            disabled={isVideoUploading}
-            className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
-          >
-            {isVideoUploading ? 'Uploading Video...' : 'Save Lesson'}
-          </button>
-        </div>
-      </form>
-    </>
+      <div className="flex justify-end items-center mt-4">
+        {/* Removed "Upload Image/File" button as RichTextEditor handles this internally */}
+        <button
+          type="submit"
+          disabled={isVideoUploading}
+          className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
+        >
+          {isVideoUploading ? 'Uploading Video...' : 'Save Lesson'}
+        </button>
+      </div>
+    </form>
   );
 };
 
@@ -473,7 +463,7 @@ export default function ManageCoursePage() {
     useState<string | null>(null);
   const [addingQuizToLessonId, setAddingQuizToLessonId] =
     useState<string | null>(null);
-  // ✅ NEW STATE: from second snippet
+  // ✅ NEW STATE: from previous snippet
   const [pendingEnrollmentCount, setPendingEnrollmentCount] = useState(0); 
 
   const deleteCourseAndCollections = async () => {
@@ -536,12 +526,6 @@ export default function ManageCoursePage() {
         batch.delete(doc(courseRef, 'enrollmentRequests', eDoc.id))
       );
       
-      // The original code had a typo or outdated collection name: 
-      // const enrollmentsSnapshot = await getDocs(collection(courseRef, 'enrollmentRequests'));
-      // enrollmentsSnapshot.docs.forEach((eDoc) => batch.delete(doc(courseRef, 'enrollments', eDoc.id)));
-      // Assuming 'enrollmentRequests' is the correct collection, I've corrected the batch delete above. 
-      // If 'enrollments' (approved ones) also needs deletion, a separate snapshot is needed.
-
       // delete course doc
       batch.delete(courseRef);
       await batch.commit();
@@ -843,6 +827,10 @@ export default function ManageCoursePage() {
                           : 'Add Quiz'}
                       </button>
                     </div>
+                    {/* Lesson Content is now rendered as HTML, but here it's still being outputted as text.
+                    To correctly render HTML from the RichTextEditor, you would typically use dangerouslySetInnerHTML
+                    in a separate component used for displaying the lesson content. Since this is the *management* page, 
+                    we'll keep it as text for now, but in a student-facing view, this would need updating. */}
                     <p className="text-gray-700 mt-2 whitespace-pre-line">
                       {' '}
                       {lesson.content}{' '}

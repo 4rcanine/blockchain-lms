@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from 'react';
 import {
-  collection,
   collectionGroup,
   getDocs,
   query,
@@ -11,7 +10,7 @@ import {
   Timestamp,
   doc,
   DocumentData,
-  getDoc, // <--- Added getDoc for fetching single documents
+  getDoc,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
@@ -32,7 +31,7 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-/* ---------------------------- Utility: Course Coloring (Locally Defined) ----------------------------- */
+/* ---------------------------- Utility: Course Coloring ----------------------------- */
 
 // NOTE: This array MUST match the hex codes/order in the Educator Manage page to ensure consistency.
 const COLOR_MAP = [
@@ -70,10 +69,16 @@ interface EnrolledCourseInfo {
   title: string;
 }
 
+/* ---------------------------- Main Component --------------------------- */
 export default function CalendarPage() {
   const { user, loading: authLoading } = useAuth();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // ✅ NEW STATE: Controlled props for the Calendar component
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentView, setCurrentView] = useState<'month' | 'week' | 'day' | 'agenda'>('month');
+
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -104,7 +109,7 @@ export default function CalendarPage() {
             const courseRef = docRef.ref.parent.parent!;
             const courseId = courseRef.id;
             
-            // CORRECTED: Use getDoc(reference) instead of reference.get()
+            // Fetch the course title
             const courseSnap = await getDoc(courseRef);
             
             const courseTitle = courseSnap.data()?.title || 'Unknown Course';
@@ -145,6 +150,7 @@ export default function CalendarPage() {
             if (quizData.dueDate instanceof Timestamp) {
                 dueDate = quizData.dueDate.toDate();
             } else if (quizData.dueDate?.seconds) {
+              // Fallback for objects that look like Timestamps
                 dueDate = new Date(quizData.dueDate.seconds * 1000);
             } else {
                 dueDate = new Date(quizData.dueDate);
@@ -201,7 +207,13 @@ export default function CalendarPage() {
           startAccessor="start"
           endAccessor="end"
           style={{ height: '100%' }}
-          eventPropGetter={eventPropGetter} // Apply dynamic colors here
+          eventPropGetter={eventPropGetter} 
+          
+          // ✅ CONTROL PROPS ADDED FOR NAVIGATION AND VIEW SWITCHING
+          view={currentView}
+          date={currentDate}
+          onView={(view: any) => setCurrentView(view)}
+          onNavigate={(newDate) => setCurrentDate(newDate)}
         />
       </div>
     </div>

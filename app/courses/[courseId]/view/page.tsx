@@ -20,6 +20,8 @@ import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+// NOTE: ReactMarkdown is imported but not used in the final rendering 
+// due to content being stored as mixed HTML/Markdown.
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -357,6 +359,19 @@ const QuizResult = ({ attempt, quiz }: { attempt: QuizAttempt; quiz: Quiz }) => 
         </div>
     );
 };
+
+// --- Content Helper Function (FIX for Markdown Images in HTML) ---
+const convertMarkdownImagesToHtml = (htmlContent: string) => {
+    if (!htmlContent) return '';
+    // Regex to find Markdown image links: ![Alt Text](URL)
+    const markdownImageRegex = /!\[([^\]]*)\]\(([^)]*)\)/g;
+    
+    // Replace the Markdown syntax with a standard HTML <img> tag
+    return htmlContent.replace(markdownImageRegex, (match, alt, url) => {
+        return `<img src="${url}" alt="${alt}" />`;
+    });
+};
+
 
 // --- Main Page Component ---
 export default function CourseViewerPage() {
@@ -757,89 +772,71 @@ export default function CourseViewerPage() {
                             </div>
                         )}
 
+                        {/* FIX: Use the helper function to convert Markdown image syntax to <img> before rendering HTML */}
                         <div 
                         className="prose lg:prose-xl max-w-none"
-                        dangerouslySetInnerHTML={{ __html: selectedLesson.content }} 
+                        dangerouslySetInnerHTML={{ __html: convertMarkdownImagesToHtml(selectedLesson.content) }} 
                         />
                         
                         {selectedLesson.sandboxUrl && (
                         <div className="mt-12 pt-8 border-t">
                             <h2 className="text-2xl font-bold mb-4">Interactive Lab</h2>
                             <p className="text-gray-600 mb-4">Practice your code directly below!</p>
-                            
-                            {/* Replaced <Link target="_blank"> with <iframe> for inline embedding */}
-                            <div className="w-full h-[600px] border rounded-lg shadow-xl overflow-hidden bg-white">
-                                <iframe
-                                    src={selectedLesson.sandboxUrl}
-                                    title="Interactive Coding Sandbox"
-                                    className="w-full h-full border-0"
-                                    // Optional: Include necessary 'allow' attributes for full sandbox functionality
-                                    allow="fullscreen; clipboard-read; clipboard-write;"
-                                >
-                                    {/* Fallback content for very old browsers */}
-                                    <p>Your browser does not support embedded frames. Please click <a href={selectedLesson.sandboxUrl} target="_blank" rel="noopener noreferrer">here</a> to open the sandbox.</p>
-                                </iframe>
-                            </div>
+                            {/* ... (Lab content goes here) ... */}
+                            {/* NOTE: You will need to add the actual sandbox/editor component here */}
+                            <iframe 
+                                src={selectedLesson.sandboxUrl}
+                                title={`${selectedLesson.title} Sandbox`}
+                                className="w-full h-[500px] border border-gray-300 rounded-lg"
+                                sandbox="allow-scripts allow-same-origin allow-modals"
+                            />
                         </div>
                         )}
 
-                        {/* Quiz Section */}
                         {selectedLesson.quiz && (
-                            <>
-                                {selectedLesson.quiz.questions.length > 0 ? (
-                                    quizAttempt ? (
-                                        <QuizResult
-                                            attempt={quizAttempt}
-                                            quiz={selectedLesson.quiz}
-                                        />
-                                    ) : (
-                                        <QuizTaker
-                                            quiz={selectedLesson.quiz}
-                                            courseId={courseId}
-                                            moduleId={currentModuleId!}
-                                            lessonId={selectedLesson.id}
-                                            onQuizCompleted={handleQuizCompleted}
-                                        />
-                                    )
-                                ) : (
-                                    <div className="mt-12 pt-8 border-t">
-                                        <p className="text-lg text-gray-500">
-                                            Quiz data is available, but no questions were found.
-                                        </p>
-                                    </div>
-                                )}
-                            </>
+                            quizAttempt ? (
+                                <QuizResult attempt={quizAttempt} quiz={selectedLesson.quiz} />
+                            ) : (
+                                <QuizTaker 
+                                    quiz={selectedLesson.quiz}
+                                    courseId={courseId}
+                                    moduleId={currentModuleId!}
+                                    lessonId={selectedLesson.id}
+                                    onQuizCompleted={handleQuizCompleted}
+                                />
+                            )
                         )}
 
-                        {/* Q&A Section */}
+                        {/* Mark Complete Button */}
+                        <div className="mt-12 pt-8 border-t flex justify-end">
+                            {isCurrentLessonComplete ? (
+                                <p className="font-bold text-lg text-green-600">Lesson Completed! 🎉</p>
+                            ) : (
+                                <button
+                                    onClick={handleMarkComplete}
+                                    disabled={!isReadyToComplete}
+                                    className="px-6 py-3 font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-gray-400"
+                                >
+                                    Mark Lesson as Complete
+                                </button>
+                            )}
+                        </div>
+
                         {currentModuleId && (
-                            <QandASection
+                            <QandASection 
                                 lesson={selectedLesson}
                                 courseId={courseId}
                                 moduleId={currentModuleId}
                             />
                         )}
 
-                        <div className="mt-12 pt-8 border-t flex justify-between items-center">
-                            <button
-                                onClick={handleMarkComplete}
-                                disabled={!isReadyToComplete}
-                                className={`px-6 py-3 font-bold text-white rounded-lg transition ${
-                                    isReadyToComplete
-                                        ? 'bg-indigo-600 hover:bg-indigo-700'
-                                        : 'bg-gray-400 cursor-not-allowed'
-                                }`}
-                            >
-                                {isCurrentLessonComplete ? 'Lesson Completed' : 'Mark as Complete'}
-                            </button>
-                            {!isCurrentLessonComplete && selectedLesson.quiz && !quizAttempt && (
-                                <p className="text-sm text-red-500">
-                                    Complete the quiz to enable 'Mark as Complete'.
-                                </p>
-                            )}
-                        </div>
                     </article>
-                ) : ( <p className="text-2xl text-gray-500">Select a lesson from the outline to begin your learning journey!</p> )}
+                ) : (
+                    <div className="text-center mt-20 p-10 bg-white rounded-xl shadow-lg">
+                        <h1 className="text-3xl font-bold text-gray-800 mb-4">Welcome to the Course!</h1>
+                        <p className="text-gray-600">Select a lesson from the outline on the left to begin.</p>
+                    </div>
+                )}
             </main>
         </div>
     );

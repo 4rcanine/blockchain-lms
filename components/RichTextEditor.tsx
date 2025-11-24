@@ -2,7 +2,7 @@
 'use client';
 
 import { useEditor, EditorContent, Extension } from '@tiptap/react';
-import { useCallback } from 'react';
+import { useCallback, forwardRef, useImperativeHandle } from 'react'; // ✅ Added forwardRef/useImperativeHandle
 
 // Core Extensions 
 import Document from '@tiptap/extension-document';
@@ -29,7 +29,7 @@ import Highlight from '@tiptap/extension-highlight';
 import TextAlign from '@tiptap/extension-text-align';
 
 // ----------------------------------------------------------------------
-// 🛠️ CUSTOM FONT SIZE EXTENSION (Defines the missing command)
+// 🛠️ CUSTOM FONT SIZE EXTENSION
 // ----------------------------------------------------------------------
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -43,9 +43,7 @@ declare module '@tiptap/core' {
 const FontSize = Extension.create({
   name: 'fontSize',
   addOptions() {
-    return {
-      types: ['textStyle'],
-    };
+    return { types: ['textStyle'] };
   },
   addGlobalAttributes() {
     return [
@@ -56,12 +54,8 @@ const FontSize = Extension.create({
             default: null,
             parseHTML: element => element.style.fontSize.replace(/['"]+/g, ''),
             renderHTML: attributes => {
-              if (!attributes.fontSize) {
-                return {};
-              }
-              return {
-                style: `font-size: ${attributes.fontSize}`,
-              };
+              if (!attributes.fontSize) return {};
+              return { style: `font-size: ${attributes.fontSize}` };
             },
           },
         },
@@ -70,23 +64,15 @@ const FontSize = Extension.create({
   },
   addCommands() {
     return {
-      setFontSize: (fontSize) => ({ chain }) => {
-        return chain()
-          .setMark('textStyle', { fontSize })
-          .run();
-      },
-      unsetFontSize: () => ({ chain }) => {
-        return chain()
-          .setMark('textStyle', { fontSize: null })
-          .removeEmptyTextStyle()
-          .run();
-      },
+      setFontSize: (fontSize) => ({ chain }) => chain().setMark('textStyle', { fontSize }).run(),
+      unsetFontSize: () => ({ chain }) => chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run(),
     };
   },
 });
+
 // ----------------------------------------------------------------------
-
-
+// Toolbar Component
+// ----------------------------------------------------------------------
 const Toolbar = ({ editor }: { editor: any }) => {
     if (!editor) return null;
 
@@ -103,119 +89,90 @@ const Toolbar = ({ editor }: { editor: any }) => {
 
     const baseClasses = "px-3 py-1 text-sm font-medium rounded hover:bg-gray-200 border border-gray-300";
     const activeClasses = "bg-blue-200 text-blue-700 border-blue-400";
-    
     const FONT_SIZES = ['12px', '14px', '16px', '18px', '20px', '24px', '32px'];
 
     return (
         <div className="flex flex-wrap gap-2 p-2 border rounded-t-md bg-gray-50">
-            {/* Basic Formatting */}
             <button type="button" onClick={() => editor.chain().focus().toggleBold().run()} className={`${baseClasses} ${editor.isActive('bold') ? activeClasses : 'text-gray-700'}`}>Bold</button>
             <button type="button" onClick={() => editor.chain().focus().toggleItalic().run()} className={`${baseClasses} ${editor.isActive('italic') ? activeClasses : 'text-gray-700'}`}>Italic</button>
             <button type="button" onClick={() => editor.chain().focus().toggleUnderline().run()} className={`${baseClasses} ${editor.isActive('underline') ? activeClasses : 'text-gray-700'}`}>Underline</button>
             
-            {/* FONT SIZE DROPDOWN - Uses our new custom command */}
             <select
                 onChange={(e) => {
                     const size = e.target.value;
-                    if (size) {
-                        editor.chain().focus().setFontSize(size).run();
-                    } else {
-                        editor.chain().focus().unsetFontSize().run();
-                    }
+                    if (size) editor.chain().focus().setFontSize(size).run();
+                    else editor.chain().focus().unsetFontSize().run();
                 }}
                 value={editor.getAttributes('textStyle').fontSize || ''}
                 className={`${baseClasses} w-auto`}
             >
                 <option value="">Size</option>
-                {FONT_SIZES.map(size => (
-                    <option key={size} value={size}>
-                        {size}
-                    </option>
-                ))}
+                {FONT_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
             </select>
 
-            {/* Headings */}
             <button type="button" onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={`${baseClasses} ${editor.isActive('heading', { level: 1 }) ? activeClasses : 'text-gray-700'}`}>H1</button>
             <button type="button" onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={`${baseClasses} ${editor.isActive('heading', { level: 2 }) ? activeClasses : 'text-gray-700'}`}>H2</button>
-            
-            {/* Lists */}
             <button type="button" onClick={() => editor.chain().focus().toggleBulletList().run()} className={`${baseClasses} ${editor.isActive('bulletList') ? activeClasses : 'text-gray-700'}`}>List</button>
             <button type="button" onClick={() => editor.chain().focus().toggleOrderedList().run()} className={`${baseClasses} ${editor.isActive('orderedList') ? activeClasses : 'text-gray-700'}`}>Numbered</button>
-            
-            {/* Alignment */}
             <button type="button" onClick={() => editor.chain().focus().setTextAlign('left').run()} className={`${baseClasses} ${editor.isActive({ textAlign: 'left' }) ? activeClasses : 'text-gray-700'}`}>Left</button>
             <button type="button" onClick={() => editor.chain().focus().setTextAlign('center').run()} className={`${baseClasses} ${editor.isActive({ textAlign: 'center' }) ? activeClasses : 'text-gray-700'}`}>Center</button>
             <button type="button" onClick={() => editor.chain().focus().setTextAlign('right').run()} className={`${baseClasses} ${editor.isActive({ textAlign: 'right' }) ? activeClasses : 'text-gray-700'}`}>Right</button>
-            
             <button type="button" onClick={() => editor.chain().focus().toggleHighlight().run()} className={`${baseClasses} ${editor.isActive('highlight') ? activeClasses : 'text-gray-700'}`}>Highlight</button>
             <button type="button" onClick={setLink} className={`${baseClasses} ${editor.isActive('link') ? activeClasses : 'text-gray-700'}`}>Link</button>
-            
-            <input type="color" onInput={event => editor.chain().focus().setColor((event.target as HTMLInputElement).value).run()} value={editor.getAttributes('textStyle').color} className="h-8 w-8 cursor-pointer rounded-full border-none p-0" />
-            
+            <input type="color" onInput={event => editor.chain().focus().setColor((event.target as HTMLInputElement).value).run()} value={editor.getAttributes('textStyle').color || '#000000'} className="h-8 w-8 cursor-pointer rounded-full border-none p-0" />
             <button type="button" onClick={() => editor.chain().focus().undo().run()} className={baseClasses}>Undo</button>
             <button type="button" onClick={() => editor.chain().focus().redo().run()} className={baseClasses}>Redo</button>
         </div>
     );
 };
 
-// --- Main Editor Component ---
-const RichTextEditor = ({ content, onUpdate }: { content: string; onUpdate: (html: string) => void; }) => {
-    const editor = useEditor({
-        extensions: [
-            Document,
-            Paragraph,
-            Text,
-            HardBreak,
+// ----------------------------------------------------------------------
+// Main Editor Component
+// ----------------------------------------------------------------------
 
-            // 🎯 FORCE STYLING: HTMLAttributes ensures these classes are always applied
-            Heading.configure({ 
-                levels: [1, 2],
-                HTMLAttributes: {
-                    class: 'font-bold text-2xl my-4', // Forces H1/H2 styling
-                },
-            }), 
-            BulletList.configure({
-                HTMLAttributes: {
-                    class: 'list-disc ml-5', // Forces Bullet visibility
-                },
-            }),
-            OrderedList.configure({
-                HTMLAttributes: {
-                    class: 'list-decimal ml-5', // Forces Number visibility
-                },
-            }),
-            ListItem,
-            Blockquote,
-            
-            TextStyle, 
-            Color,
-            FontSize, // Our custom extension
-            Underline,
+// ✅ Define Type for Ref
+export interface RichTextEditorRef {
+    insertContent: (content: string) => void;
+}
 
-            Highlight.configure({ multicolor: true }),
-            Link.configure({ openOnClick: false }),
-            History,
-            TextAlign.configure({ types: ['heading', 'paragraph'] }),
-        ],
-        content: content,
-        onUpdate: ({ editor }) => {
-            onUpdate(editor.getHTML());
-        },
-        immediatelyRender: false, 
-        editorProps: {
-            attributes: {
-                // We keep prose as a backup, but the HTMLAttributes above will force the layout
-                class: 'prose lg:prose-xl max-w-none p-4 min-h-[200px] border rounded-b-md focus:outline-none',
+// ✅ Wrapped in forwardRef
+const RichTextEditor = forwardRef<RichTextEditorRef, { content: string; onUpdate: (html: string) => void; }>(
+    ({ content, onUpdate }, ref) => {
+        const editor = useEditor({
+            extensions: [
+                Document, Paragraph, Text, HardBreak, Bold, Italic,
+                Heading.configure({ levels: [1, 2], HTMLAttributes: { class: 'font-bold text-2xl my-4' } }), 
+                BulletList.configure({ HTMLAttributes: { class: 'list-disc ml-5' } }),
+                OrderedList.configure({ HTMLAttributes: { class: 'list-decimal ml-5' } }),
+                ListItem, Blockquote, TextStyle, Color, FontSize, Underline,
+                Highlight.configure({ multicolor: true }), Link.configure({ openOnClick: false }),
+                History, TextAlign.configure({ types: ['heading', 'paragraph'] }),
+            ],
+            content: content,
+            onUpdate: ({ editor }) => onUpdate(editor.getHTML()),
+            immediatelyRender: false, 
+            editorProps: {
+                attributes: {
+                    class: 'prose lg:prose-xl max-w-none p-4 min-h-[200px] border rounded-b-md focus:outline-none',
+                },
             },
-        },
-    });
+        });
 
-    return (
-        <div>
-            <Toolbar editor={editor} />
-            <EditorContent editor={editor} />
-        </div>
-    );
-};
+        // ✅ Expose insertContent method to parent
+        useImperativeHandle(ref, () => ({
+            insertContent: (newContent: string) => {
+                editor?.chain().focus().insertContent(newContent).run();
+            }
+        }));
 
+        return (
+            <div>
+                <Toolbar editor={editor} />
+                <EditorContent editor={editor} />
+            </div>
+        );
+    }
+);
+
+RichTextEditor.displayName = 'RichTextEditor'; // Required for debugging
 export default RichTextEditor;

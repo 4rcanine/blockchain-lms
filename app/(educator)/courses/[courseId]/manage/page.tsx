@@ -1,6 +1,7 @@
 // app/(educator)/courses/[courseId]/manage/page.tsx
 'use client';
-import { useEffect, useState } from 'react';
+
+import { useEffect, useState, useRef } from 'react';
 import {
   doc,
   getDoc,
@@ -15,7 +16,7 @@ import {
   arrayUnion,
   deleteDoc,
   writeBatch,
-  where, // ✅ NEW import: where
+  where,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
@@ -24,8 +25,8 @@ import VideoUploader from '@/components/VideoUploader';
 import React from 'react';
 import Link from 'next/link';
 
-// ✅ NEW import: RichTextEditor
-import RichTextEditor from '@/components/RichTextEditor'; 
+// ✅ Import the Editor and the Ref Type
+import RichTextEditor, { RichTextEditorRef } from '@/components/RichTextEditor'; 
 
 /* ------------------------------- Types -------------------------------- */
 interface QandA {
@@ -53,7 +54,7 @@ interface Quiz {
 interface Lesson {
   id: string;
   title: string;
-  content: string; // Now stores HTML from RichTextEditor
+  content: string; // HTML content
   qanda?: QandA[];
   quiz?: Quiz | null;
   sandboxUrl?: string;
@@ -88,7 +89,7 @@ const getColorForId = (id: string): (typeof COLOR_MAP)[number] => {
   return COLOR_MAP[index];
 };
 
-/* ---------------------------- AddLessonForm (UPDATED) ----------------------------- */
+/* ---------------------------- AddLessonForm ----------------------------- */
 const AddLessonForm = ({
   moduleId,
   courseId,
@@ -99,13 +100,15 @@ const AddLessonForm = ({
   onLessonAdded: () => void;
 }) => {
   const [title, setTitle] = useState('');
-  const [content, setContent] = useState(''); // This will now store HTML
+  const [content, setContent] = useState(''); 
   const [sandboxUrl, setSandboxUrl] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [isVideoUploading, setIsVideoUploading] = useState(false);
   const [error, setError] = useState('');
-  // NOTE: AddContentModal is no longer needed since RichTextEditor handles content creation/upload,
-  // so `isModalOpen` state is removed.
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // ✅ Ref to access RichTextEditor methods (insertContent)
+  const editorRef = useRef<RichTextEditorRef>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,7 +127,7 @@ const AddLessonForm = ({
       const lessonsRef = collection(db, 'courses', courseId, 'modules', moduleId, 'lessons');
       const newLessonRef = await addDoc(lessonsRef, {
         title: title.trim(),
-        content: content, // Save the HTML content directly
+        content: content, 
         sandboxUrl: sandboxUrl.trim() || null,
         videoUrl: videoUrl || null,
         createdAt: serverTimestamp(),
@@ -145,64 +148,97 @@ const AddLessonForm = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="my-4 p-4 bg-gray-50 border-2 border-dashed rounded-md space-y-4">
-      <h4 className="font-semibold mb-2 text-gray-700">Add a New Lesson to this Module</h4>
-      <input
-        type="text"
-        placeholder="Lesson Title*"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        className="w-full p-2 border rounded-md"
-        required
-      />
+    <>
+      {isModalOpen && (
+        <AddContentModal
+          onClose={() => setIsModalOpen(false)}
+          onContentAdded={(newContent) => {
+            // ✅ LOGIC: Detect image and format as Markdown
+            const isImageUrl = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/i.test(newContent) || newContent.includes('cloudinary');
+            
+            let contentToInsert = newContent;
+            
+            if (isImageUrl && !newContent.startsWith('![')) {
+                // Format as markdown image
+                contentToInsert = `![Lesson Image](${newContent})`; 
+            }
 
-      {/* --- REPLACEMENT FOR TEXTAREA AND AddContentModal BUTTON --- */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Lesson Content</label>
-        <RichTextEditor
-          content={content}
-          onUpdate={setContent}
+            // ✅ Insert at cursor position using the Ref
+            if (editorRef.current) {
+                editorRef.current.insertContent(contentToInsert);
+            } else {
+                // Fallback: Append to end
+                setContent((prev) => prev + "\n" + contentToInsert);
+            }
+          }}
         />
-      </div>
-      {/* ----------------------------------------------------------- */}
+      )}
 
-      {/* VideoUploader Component */}
-      <VideoUploader
-        onUploadStart={() => setIsVideoUploading(true)}
-        onUploadComplete={(url) => {
-          setVideoUrl(url);
-          setIsVideoUploading(false);
-        }}
-        onUploadError={() => {
-          setError('Video upload failed. Please try again.');
-          setIsVideoUploading(false);
-        }}
-      />
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Interactive Sandbox URL (Optional)</label>
+      <form onSubmit={handleSubmit} className="my-4 p-4 bg-gray-50 border-2 border-dashed rounded-md space-y-4">
+        <h4 className="font-semibold mb-2 text-gray-700">Add a New Lesson to this Module</h4>
         <input
-          type="url"
-          placeholder="https://stackblitz.com/..."
-          value={sandboxUrl}
-          onChange={(e) => setSandboxUrl(e.target.value)}
-          className="w-full p-2 mt-1 border rounded-md"
+          type="text"
+          placeholder="Lesson Title*"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className="w-full p-2 border rounded-md"
+          required
         />
-      </div>
 
-      {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Lesson Content</label>
+          {/* ✅ Attach the Ref here */}
+          <RichTextEditor
+            ref={editorRef}
+            content={content}
+            onUpdate={setContent}
+          />
+        </div>
 
-      <div className="flex justify-end items-center mt-4">
-        {/* Removed "Upload Image/File" button as RichTextEditor handles this internally */}
-        <button
-          type="submit"
-          disabled={isVideoUploading}
-          className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
-        >
-          {isVideoUploading ? 'Uploading Video...' : 'Save Lesson'}
-        </button>
-      </div>
-    </form>
+        <VideoUploader
+          onUploadStart={() => setIsVideoUploading(true)}
+          onUploadComplete={(url) => {
+            setVideoUrl(url);
+            setIsVideoUploading(false);
+          }}
+          onUploadError={() => {
+            setError('Video upload failed. Please try again.');
+            setIsVideoUploading(false);
+          }}
+        />
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Interactive Sandbox URL (Optional)</label>
+          <input
+            type="url"
+            placeholder="https://stackblitz.com/..."
+            value={sandboxUrl}
+            onChange={(e) => setSandboxUrl(e.target.value)}
+            className="w-full p-2 mt-1 border rounded-md"
+          />
+        </div>
+
+        {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+
+        <div className="flex justify-between items-center mt-4">
+          <button
+            type="button"
+            onClick={() => setIsModalOpen(true)}
+            className="px-4 py-2 text-sm font-semibold text-indigo-600 bg-indigo-100 rounded-md hover:bg-indigo-200"
+          >
+            Upload Image/File
+          </button>
+
+          <button
+            type="submit"
+            disabled={isVideoUploading}
+            className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
+          >
+            {isVideoUploading ? 'Uploading Video...' : 'Save Lesson'}
+          </button>
+        </div>
+      </form>
+    </>
   );
 };
 
@@ -273,7 +309,7 @@ const AnswerQuestionForm = ({
   );
 };
 
-/* ---------------------------- AddQuizForm (updated with dueDate) ------------------------------ */
+/* ---------------------------- AddQuizForm ------------------------------ */
 const AddQuizForm = ({
   lesson,
   courseId,
@@ -311,7 +347,6 @@ const AddQuizForm = ({
     ]);
   };
 
-  // -------------------- UPDATED handleSubmit --------------------
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !dueDate) {
@@ -353,7 +388,6 @@ const AddQuizForm = ({
       setError('Failed to save quiz.');
     }
   };
-  // ----------------------------------------------------------------
 
   return (
     <div className="my-4 p-4 bg-blue-50 border-2 border-dashed border-blue-300 rounded-md">
@@ -463,7 +497,6 @@ export default function ManageCoursePage() {
     useState<string | null>(null);
   const [addingQuizToLessonId, setAddingQuizToLessonId] =
     useState<string | null>(null);
-  // ✅ NEW STATE: from previous snippet
   const [pendingEnrollmentCount, setPendingEnrollmentCount] = useState(0); 
 
   const deleteCourseAndCollections = async () => {
@@ -604,7 +637,7 @@ export default function ManageCoursePage() {
                 ...qDoc.data(),
               })) as QandA[];
 
-              // ---- NEW: fetch quizzes collection and look for quiz-data/main documents ----
+              // Fetch quizzes
               const quizzesCollectionRef = collection(
                 db,
                 'courses',
@@ -620,7 +653,6 @@ export default function ManageCoursePage() {
               const quizCandidates: Quiz[] = [];
 
               for (const quizDoc of quizzesSnapshot.docs) {
-                // quizDoc.ref points to the quiz document (e.g. quizzes/{quizId})
                 const quizDataDocRef = doc(quizDoc.ref, 'quiz-data', 'main');
                 const quizDataSnap = await getDoc(quizDataDocRef);
                 if (quizDataSnap.exists()) {
@@ -635,7 +667,6 @@ export default function ManageCoursePage() {
                 }
               }
 
-              // If multiple quizzes exist, pick the most recent by createdAt if available
               if (quizCandidates.length > 0) {
                 quizCandidates.sort((a, b) => {
                   const ta = a.createdAt ? (a.createdAt.seconds ?? 0) : 0;
@@ -665,7 +696,7 @@ export default function ManageCoursePage() {
       setModules(modulesList);
       setError(null);
       
-      // ✅ NEW: Fetch pending enrollment count
+      // Fetch pending enrollment count
       const enrollmentRequestsQuery = query(
         collection(db, 'courses', courseId, 'enrollmentRequests'),
         where('status', '==', 'pending')
@@ -719,7 +750,6 @@ export default function ManageCoursePage() {
             className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md relative"
           >
             Enrollments
-            {/* Display pending enrollment count */}
             {pendingEnrollmentCount > 0 && (
               <span className="absolute -top-1 -right-1 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-red-100 bg-red-600 rounded-full">
                 {pendingEnrollmentCount}
@@ -827,10 +857,6 @@ export default function ManageCoursePage() {
                           : 'Add Quiz'}
                       </button>
                     </div>
-                    {/* Lesson Content is now rendered as HTML, but here it's still being outputted as text.
-                    To correctly render HTML from the RichTextEditor, you would typically use dangerouslySetInnerHTML
-                    in a separate component used for displaying the lesson content. Since this is the *management* page, 
-                    we'll keep it as text for now, but in a student-facing view, this would need updating. */}
                     <p className="text-gray-700 mt-2 whitespace-pre-line">
                       {' '}
                       {lesson.content}{' '}

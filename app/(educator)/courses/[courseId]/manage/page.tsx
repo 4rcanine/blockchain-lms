@@ -132,15 +132,19 @@ const LessonForm = ({
     existingLesson?: Lesson;
 }) => {
     const [title, setTitle] = useState(existingLesson?.title || '');
-    const [content, setContent] = useState(existingLesson?.content || '');
     const [sandboxUrl, setSandboxUrl] = useState(existingLesson?.sandboxUrl || '');
     const [videoUrl, setVideoUrl] = useState(existingLesson?.videoUrl || '');
-    
     const [isVideoUploading, setIsVideoUploading] = useState(false);
     const [error, setError] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     
+    // 1. Use a Ref to track content instead of State for the editor
+    // This completely disconnects the Editor's internal updates from React's re-render cycle
+    const contentRef = useRef(existingLesson?.content || '');
     const editorRef = useRef<RichTextEditorRef>(null);
+
+    // 2. This ref is for the *initial* value only
+    const initialContent = useRef(existingLesson?.content || '').current;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -150,7 +154,7 @@ const LessonForm = ({
         
         const lessonData = {
             title: title.trim(),
-            content,
+            content: contentRef.current, // Read from Ref
             sandboxUrl: sandboxUrl.trim() || null,
             videoUrl: videoUrl || null,
             createdAt: existingLesson?.createdAt || serverTimestamp(),
@@ -174,6 +178,22 @@ const LessonForm = ({
         }
     };
 
+    // 3. Memoize the Editor Component
+    // This tells React: "Never re-render this specific chunk of JSX unless initialContent changes"
+    // This prevents the Title input from causing the Editor to reload.
+    const MemoizedEditor = React.useMemo(() => {
+        return (
+            <RichTextEditor
+                ref={editorRef}
+                content={initialContent} 
+                onUpdate={(newVal) => {
+                    // Update the ref silently without triggering a re-render
+                    contentRef.current = newVal;
+                }}
+            />
+        );
+    }, [initialContent]);
+
     return (
         <>
             {isModalOpen && (
@@ -185,10 +205,11 @@ const LessonForm = ({
                         if (isImageUrl && !newContent.startsWith('![')) {
                             contentToInsert = `![Lesson Image](${newContent})`;
                         }
+                        
                         if (editorRef.current) {
                             editorRef.current.insertContent(contentToInsert);
                         } else {
-                            setContent((prev) => prev + '\n' + contentToInsert);
+                            contentRef.current += '\n' + contentToInsert;
                         }
                     }}
                 />
@@ -212,11 +233,8 @@ const LessonForm = ({
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                         Lesson Content
                     </label>
-                    <RichTextEditor
-                        ref={editorRef}
-                        content={content}
-                        onUpdate={setContent}
-                    />
+                    {/* Render the Memoized Component */}
+                    {MemoizedEditor}
                 </div>
                 
                 <VideoUploader

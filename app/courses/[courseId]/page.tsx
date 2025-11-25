@@ -6,11 +6,12 @@ import { useEffect, useState } from 'react';
 import { 
   doc, 
   getDoc, 
-  setDoc, 
-  serverTimestamp 
+  serverTimestamp, 
+  collection, 
+  writeBatch 
 } from 'firebase/firestore';
-import { db } from '@/firebase/config'; // Adjust path as needed
-import useAuth from '@/hooks/useAuth'; // Adjust path as needed
+import { db } from '@/firebase/config';
+import useAuth from '@/hooks/useAuth';
 import { useParams, useRouter } from 'next/navigation';
 
 // Interface for the course data
@@ -19,7 +20,7 @@ interface Course {
   description: string; 
   tags: string[]; 
   imageUrl?: string;
-  instructorIds?: string[]; 
+  instructorIds?: string[]; // Optional in interface, but required for logic below
 }
 
 // Type for the enrollment status from the subcollection
@@ -36,12 +37,13 @@ export default function CourseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // --- 1. Fetch Data Effect ---
   useEffect(() => {
     if (!courseId) return;
 
     const fetchCourseAndEnrollmentStatus = async () => {
       try {
-        // 1. Fetch course details
+        // Fetch course details
         const courseDocRef = doc(db, 'courses', courseId);
         const courseDocSnap = await getDoc(courseDocRef);
         if (!courseDocSnap.exists()) {
@@ -50,7 +52,7 @@ export default function CourseDetailPage() {
         }
         setCourse(courseDocSnap.data() as Course);
 
-        // 2. If user is logged in, check their enrollment request status
+        // If user is logged in, check their enrollment request status
         if (user) {
           const requestDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
           const requestDocSnap = await getDoc(requestDocRef);
@@ -72,36 +74,60 @@ export default function CourseDetailPage() {
     fetchCourseAndEnrollmentStatus();
   }, [courseId, user]);
 
- 
+  // --- 2. Handle Enrollment (Merged Logic) ---
   const handleEnroll = async () => {
+    // Basic checks
     if (!user) {
-      router.push('/login'); // Redirect to login if not authenticated
+      router.push('/login');
       return;
     }
+    if (!course) return;
 
-    const requestDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
+    // Check for instructors to notify
+    const instructorIds = course.instructorIds;
+    if (!instructorIds || instructorIds.length === 0) {
+        console.error("This course has no instructors to notify.");
+        setError("Cannot enroll: No instructor assigned to this course.");
+        return;
+    }
 
     try {
-      // Create or update the enrollment request document
-      // We use { merge: true } to avoid overwriting if a doc exists but is in a weird state
-      await setDoc(requestDocRef, {
+      // Use a batch to perform all writes together (Request + Notifications)
+      const batch = writeBatch(db);
+
+      // A. Create the enrollment request for the student
+      const requestDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
+      batch.set(requestDocRef, {
         status: 'pending',
         requestedAt: serverTimestamp(),
         studentEmail: user.email,
         studentId: user.uid,
         courseId: courseId, 
       }, { merge: true });
+
+      // B. Create a notification for EACH instructor
+      instructorIds.forEach((instructorId) => {
+          const notificationRef = doc(collection(db, 'users', instructorId, 'notifications'));
+          batch.set(notificationRef, {
+              message: `${user.email} has requested to enroll in your course: ${course.title}`,
+              courseId: courseId,
+              type: 'enrollment_request', // Helps UI link to the manage page
+              createdAt: serverTimestamp(),
+              isRead: false
+          });
+      });
+      
+      // Commit all changes atomically
+      await batch.commit();
       
       setEnrollmentStatus('pending'); // Optimistically update UI
     } catch (error) {
       console.error("Failed to submit enrollment request:", error);
-      setError('Failed to submit enrollment request.');
+      setError('Failed to submit enrollment request. Please try again.');
     }
   };
   
-  /**
-   * Determines the button text and state based on the current enrollment status.
-   */
+  // --- 3. Helper for Button State ---
   const getButtonState = () => {
     switch (enrollmentStatus) {
       case 'enrolled':
@@ -121,6 +147,7 @@ export default function CourseDetailPage() {
   if (error) return <p className="text-center mt-10 text-red-500">{error}</p>;
   if (!course) return <p className="text-center mt-10">This course does not exist.</p>;
 
+  // --- 4. Render UI ---
   return (
     <div className="max-w-4xl mx-auto">
       <div className="bg-white shadow-lg rounded-lg p-8">

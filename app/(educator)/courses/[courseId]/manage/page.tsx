@@ -902,9 +902,11 @@ export default function ManageCoursePage() {
                         key={module.id}
                         className="p-6 bg-white border rounded-lg shadow-sm"
                     >
+                        {/* start */}
                         <div className="flex justify-between items-center mb-4">
+
+                            {/* LEFT COLUMN — Module Title / Edit Title */}
                             {editingModuleId === module.id ? (
-                                // --- EDITING MODULE TITLE VIEW ---
                                 <div className="flex-grow flex gap-2 items-center">
                                     <input
                                         type="text"
@@ -927,7 +929,6 @@ export default function ManageCoursePage() {
                                     </button>
                                 </div>
                             ) : (
-                                // --- DEFAULT MODULE VIEW ---
                                 <div className="flex items-center gap-4">
                                     <h3 className="text-2xl font-bold">{module.title}</h3>
                                     <button
@@ -939,18 +940,31 @@ export default function ManageCoursePage() {
                                 </div>
                             )}
 
-                            <button
-                                onClick={() =>
-                                    setAddingLessonToModuleId(
-                                        addingLessonToModuleId === module.id ? null : module.id
-                                    )
-                                }
-                                className="px-3 py-1 text-sm font-semibold bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 whitespace-nowrap"
-                            >
-                                {addingLessonToModuleId === module.id ? 'Cancel' : 'Add Lesson'}
-                            </button>
+                            {/* RIGHT COLUMN — View Discussion + Add Lesson */}
+                            <div className="flex items-center gap-4">
+                                <Link
+                                    href={`/courses/${courseId}/modules/${module.id}/discussion`}
+                                    className="px-3 py-1 text-sm font-semibold bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                                >
+                                    View Discussion
+                                </Link>
+
+                                <button
+                                    onClick={() =>
+                                        setAddingLessonToModuleId(
+                                            addingLessonToModuleId === module.id ? null : module.id
+                                        )
+                                    }
+                                    className="px-3 py-1 text-sm font-semibold bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 whitespace-nowrap"
+                                >
+                                    {addingLessonToModuleId === module.id ? 'Cancel' : 'Add Lesson'}
+                                </button>
+                            </div>
                         </div>
 
+                        
+                       {/* end */}
+                       
                         {/* ADD LESSON FORM (for new lessons) */}
                         {addingLessonToModuleId === module.id && (
                             <LessonForm

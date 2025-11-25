@@ -1,5 +1,3 @@
-//app/(student)/dashboard/page.tsx
-
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -24,6 +22,15 @@ import LearningPathGenerator from '@/components/LearningPathGenerator';
 import { Loader2, RefreshCcw } from 'lucide-react';
 
 // ----------------------------- Types ------------------------------------
+
+// Define a type for the authenticated user object (used to fix TS7031)
+interface AuthUser {
+    uid: string;
+    email: string | null;
+    displayName: string | null;
+    // Add other properties you rely on from your useAuth user object
+}
+
 interface UserProfile {
   email: string;
   role: 'student' | 'educator' | 'admin';
@@ -167,7 +174,11 @@ const CourseCard = ({
 
 // ------------------------------- Dashboard --------------------------------
 export default function Dashboard() {
-  const { user: authUser, loading: authLoading } = useAuth();
+  // FIX: Explicitly type the result of useAuth() to resolve Implicit any type errors
+  const { 
+    user: authUser, 
+    loading: authLoading 
+  } = useAuth() as { user: AuthUser | null; loading: boolean };
   const router = useRouter();
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -237,7 +248,7 @@ export default function Dashboard() {
             setEnrolledCourses([]);
           }
 
-          // --- NEW: Fetch Notifications (moved inside student logic) ---
+          // --- FIX: Fetch Notifications with Deduplication (to solve unique key error) ---
           const requestsQuery = query(
             collectionGroup(db, 'enrollmentRequests'),
             where('studentId', '==', authUser.uid),
@@ -247,19 +258,31 @@ export default function Dashboard() {
           const notificationSnapshot = await getDocs(requestsQuery);
 
           if (!notificationSnapshot.empty) {
-            const newNotifications: EnrollmentNotification[] = [];
+            // Use a Map to ensure unique entries by enrollmentDocId
+            const notificationMap = new Map<string, EnrollmentNotification>();
+            
             for (const doc of notificationSnapshot.docs) {
+              const enrollmentDocId = doc.id; // Unique ID of the enrollment request document
+              
+              if (notificationMap.has(enrollmentDocId)) {
+                  console.warn(`Duplicate notification document found for ID: ${enrollmentDocId}`);
+                  continue; // Skip processing the duplicate
+              }
+              
               const courseId = doc.ref.parent.parent!.id;
               const courseDoc = await getDoc(doc.ref.parent.parent!);
               if (courseDoc.exists()) {
-                newNotifications.push({
+                const newNote: EnrollmentNotification = {
                   courseId: courseId,
                   courseTitle: courseDoc.data().title,
-                  enrollmentDocId: doc.id,
-                });
+                  enrollmentDocId: enrollmentDocId, // This is the unique key
+                };
+                notificationMap.set(enrollmentDocId, newNote);
               }
             }
-            setNotifications(newNotifications);
+            
+            // Convert the Map values back to an array for state
+            setNotifications(Array.from(notificationMap.values()));
           } else {
             setNotifications([]);
           }
@@ -425,7 +448,7 @@ export default function Dashboard() {
             <div className='space-y-3'>
               {notifications.map((note) => (
                 <div
-                  key={note.enrollmentDocId} // Use unique doc ID for key
+                  key={note.enrollmentDocId} // Use unique doc ID for key (now guaranteed by Map deduplication)
                   className="flex justify-between items-center bg-white p-3 rounded-md shadow-sm"
                 >
                   <p>
@@ -464,7 +487,7 @@ export default function Dashboard() {
                   <div className="flex flex-wrap gap-2">
                     {learningPath.map((step, i) => (
                       <span
-                        key={i}
+                        key={i} // Using index is acceptable for static arrays like learningPath
                         className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm"
                       >
                         {step}

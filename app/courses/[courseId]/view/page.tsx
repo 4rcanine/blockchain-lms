@@ -729,7 +729,16 @@ export default function CourseViewerPage() {
                 <nav className="space-y-4">
                     {modules.map(module => (
                         <div key={module.id}>
-                            <h3 className="font-semibold text-gray-800 mb-2">{module.title}</h3>
+                            {/* --- MODULE TITLE WITH DISCUSSION LINK (MODIFIED) --- */}
+                            <div className="flex justify-between items-center mb-2">
+                                <h3 className="font-semibold text-gray-800">{module.title}</h3>
+                                <Link
+                                    href={`/courses/${courseId}/modules/${module.id}/discussion`}
+                                    className="text-xs font-medium text-indigo-600 hover:underline hover:text-indigo-800 transition duration-150 p-1 rounded-sm border border-transparent hover:border-indigo-200"
+                                >
+                                    💬 Discuss
+                                </Link>
+                            </div>
                             <ul className="space-y-1">
                                 {module.lessons.map(lesson => (
                                     <li key={lesson.id}>
@@ -772,42 +781,44 @@ export default function CourseViewerPage() {
                             </div>
                         )}
 
-                        {/* FIX: Use the helper function to convert Markdown image syntax to <img> before rendering HTML */}
+                        {/* --- MAIN LESSON CONTENT (HTML/Markdown) --- */}
                         <div 
-                        className="prose lg:prose-xl max-w-none"
-                        dangerouslySetInnerHTML={{ __html: convertMarkdownImagesToHtml(selectedLesson.content) }} 
+                            className="prose lg:prose-xl max-w-none mb-8 p-6 bg-white border rounded-lg shadow-sm"
+                            dangerouslySetInnerHTML={{ __html: convertMarkdownImagesToHtml(selectedLesson.content) }} 
                         />
                         
+                        {/* --- INTERACTIVE LAB / SANDBOX SECTION --- */}
                         {selectedLesson.sandboxUrl && (
-                        <div className="mt-12 pt-8 border-t">
-                            <h2 className="text-2xl font-bold mb-4">Interactive Lab</h2>
-                            <p className="text-gray-600 mb-4">Practice your code directly below!</p>
-                            {/* ... (Lab content goes here) ... */}
-                            {/* NOTE: You will need to add the actual sandbox/editor component here */}
-                            <iframe 
-                                src={selectedLesson.sandboxUrl}
-                                title={`${selectedLesson.title} Sandbox`}
-                                className="w-full h-[500px] border border-gray-300 rounded-lg"
-                                sandbox="allow-scripts allow-same-origin allow-modals"
-                            />
-                        </div>
-                        )}
-
-                        {selectedLesson.quiz && (
-                            quizAttempt ? (
-                                <QuizResult attempt={quizAttempt} quiz={selectedLesson.quiz} />
-                            ) : (
-                                <QuizTaker 
-                                    quiz={selectedLesson.quiz}
-                                    courseId={courseId}
-                                    moduleId={currentModuleId!}
-                                    lessonId={selectedLesson.id}
-                                    onQuizCompleted={handleQuizCompleted}
+                            <div className="mt-12 pt-8 border-t">
+                                <h2 className="text-2xl font-bold mb-4">Interactive Lab</h2>
+                                <p className="text-gray-600 mb-4">Practice your code directly below!</p>
+                                <iframe 
+                                    src={selectedLesson.sandboxUrl}
+                                    title={`${selectedLesson.title} Sandbox`}
+                                    className="w-full h-[500px] border border-gray-300 rounded-lg"
+                                    sandbox="allow-scripts allow-same-origin allow-modals"
                                 />
-                            )
+                            </div>
                         )}
 
-                        {/* Mark Complete Button */}
+                        {/* --- QUIZ / QUIZ RESULT SECTION --- */}
+                        {selectedLesson.quiz && (
+                            <>
+                                {quizAttempt ? (
+                                    <QuizResult attempt={quizAttempt} quiz={selectedLesson.quiz} />
+                                ) : (
+                                    <QuizTaker 
+                                        quiz={selectedLesson.quiz}
+                                        courseId={courseId}
+                                        moduleId={currentModuleId!}
+                                        lessonId={selectedLesson.id}
+                                        onQuizCompleted={handleQuizCompleted}
+                                    />
+                                )}
+                            </>
+                        )}
+
+                        {/* --- MARK COMPLETE BUTTON / STATUS --- */}
                         <div className="mt-12 pt-8 border-t flex justify-end">
                             {isCurrentLessonComplete ? (
                                 <p className="font-bold text-lg text-green-600">Lesson Completed! 🎉</p>
@@ -817,11 +828,12 @@ export default function CourseViewerPage() {
                                     disabled={!isReadyToComplete}
                                     className="px-6 py-3 font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-gray-400"
                                 >
-                                    Mark Lesson as Complete
+                                    {selectedLesson.quiz && !quizAttempt ? 'Complete Quiz to Finish' : 'Mark Lesson as Complete'}
                                 </button>
                             )}
                         </div>
 
+                        {/* --- Q&A SECTION --- */}
                         {currentModuleId && (
                             <QandASection 
                                 lesson={selectedLesson}

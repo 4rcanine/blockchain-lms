@@ -26,6 +26,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 // --- Type Definitions ---
+
 interface QandA {
     id: string;
     questionText: string;
@@ -34,28 +35,52 @@ interface QandA {
     studentEmail: string;
     askedAt: Timestamp | Date;
 }
-interface Question {
+
+// -- NEW QUIZ TYPE DEFINITIONS --
+type QuestionType = 'multiple-choice' | 'identification' | 'true-or-false';
+
+interface BaseQuestion {
+    id: string;
     questionText: string;
+    type: QuestionType;
+}
+
+interface MultipleChoiceQuestion extends BaseQuestion {
+    type: 'multiple-choice';
     options: string[];
     correctAnswerIndex: number;
 }
+
+interface IdentificationQuestion extends BaseQuestion {
+    type: 'identification';
+    correctAnswer: string;
+}
+
+interface TrueOrFalseQuestion extends BaseQuestion {
+    type: 'true-or-false';
+    correctAnswer: boolean;
+}
+
+type Question = MultipleChoiceQuestion | IdentificationQuestion | TrueOrFalseQuestion;
+
 interface Quiz {
     id: string;
     title: string;
     questions: Question[];
     dueDate?: any;
+    createdAt?: any;
 }
+
 interface QuizAttempt {
     studentId: string;
     score: number;
     totalQuestions: number;
-    answers: { [key: number]: number };
+    // Keys are Question IDs, Values can be index (number), text (string), or boolean
+    answers: { [key: string]: number | string | boolean };
     submittedAt: any;
 }
 
-/**
- * @interface Lesson - UPDATED with videoUrl
- */
+// -- LESSON & MODULE DEFINITIONS --
 interface Lesson {
     id: string;
     title: string;
@@ -64,13 +89,15 @@ interface Lesson {
     quiz?: Quiz;
     quizAttempt?: QuizAttempt | null;
     sandboxUrl?: string;
-    videoUrl?: string; // NEW: Added video URL support
+    videoUrl?: string; 
 }
+
 interface Module {
     id: string;
     title: string;
     lessons: Lesson[];
 }
+
 interface EnrollmentData {
     status: 'enrolled';
     completedItems?: string[];
@@ -181,7 +208,7 @@ const QandASection = ({
     );
 };
 
-// --- QuizTaker Component ---
+// --- UPDATED QuizTaker Component ---
 const QuizTaker = ({
     quiz,
     courseId,
@@ -196,12 +223,13 @@ const QuizTaker = ({
     onQuizCompleted: (attempt: QuizAttempt) => void;
 }) => {
     const { user } = useAuth();
-    const [selectedAnswers, setSelectedAnswers] = useState<{ [key: number]: number }>({});
+    // Stores answers by Question ID
+    const [selectedAnswers, setSelectedAnswers] = useState<{ [key: string]: number | string | boolean }>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
 
-    const handleAnswerSelect = (questionIndex: number, optionIndex: number) => {
-        setSelectedAnswers((prev) => ({ ...prev, [questionIndex]: optionIndex }));
+    const handleAnswerSelect = (questionId: string, value: number | string | boolean) => {
+        setSelectedAnswers((prev) => ({ ...prev, [questionId]: value }));
     };
 
     const handleSubmit = async () => {
@@ -217,9 +245,27 @@ const QuizTaker = ({
         setError('');
 
         let score = 0;
-        quiz.questions.forEach((q, index) => {
-            if (selectedAnswers[index] === q.correctAnswerIndex) {
-                score++;
+        quiz.questions.forEach((q) => {
+            const studentAnswer = selectedAnswers[q.id];
+            
+            if (q.type === 'multiple-choice') {
+                // Expect number index
+                if (studentAnswer === q.correctAnswerIndex) {
+                    score++;
+                }
+            } else if (q.type === 'identification') {
+                // Expect string, case-insensitive comparison
+                if (
+                    typeof studentAnswer === 'string' &&
+                    studentAnswer.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase()
+                ) {
+                    score++;
+                }
+            } else if (q.type === 'true-or-false') {
+                // Expect boolean
+                if (studentAnswer === q.correctAnswer) {
+                    score++;
+                }
             }
         });
 
@@ -270,33 +316,88 @@ const QuizTaker = ({
         <div className="mt-12 pt-8 border-t">
             <h2 className="text-2xl font-bold mb-2">{quiz.title}</h2>
             <p className="text-gray-600 mb-6">Complete the quiz to test your knowledge.</p>
-            <div className="space-y-6">
+            <div className="space-y-8">
                 {quiz.questions.map((q, qIndex) => (
-                    <div key={qIndex}>
-                        <p className="font-semibold">
+                    <div key={q.id} className="p-4 border rounded-lg bg-gray-50">
+                        <p className="font-semibold text-lg mb-3">
                             {qIndex + 1}. {q.questionText}
                         </p>
+                        
                         <div className="mt-2 space-y-2">
-                            {q.options.map((option, oIndex) => (
-                                <label
-                                    key={oIndex}
-                                    className={`block p-3 border rounded-lg cursor-pointer ${
-                                        selectedAnswers[qIndex] === oIndex
-                                            ? 'bg-indigo-100 border-indigo-400'
-                                            : 'hover:bg-gray-100'
-                                    }`}
-                                >
-                                    <input
-                                        type="radio"
-                                        name={`question-${qIndex}`}
-                                        value={oIndex}
-                                        onChange={() => handleAnswerSelect(qIndex, oIndex)}
-                                        checked={selectedAnswers[qIndex] === oIndex}
-                                        className="mr-2"
-                                    />
-                                    {option}
-                                </label>
-                            ))}
+                            {/* --- MULTIPLE CHOICE --- */}
+                            {q.type === 'multiple-choice' && (
+                                <div className="space-y-2">
+                                    {q.options.map((option, oIndex) => (
+                                        <label
+                                            key={oIndex}
+                                            className={`block p-3 border rounded-lg cursor-pointer transition-colors ${
+                                                selectedAnswers[q.id] === oIndex
+                                                    ? 'bg-indigo-100 border-indigo-400'
+                                                    : 'bg-white hover:bg-gray-100'
+                                            }`}
+                                        >
+                                            <input
+                                                type="radio"
+                                                name={`question-${q.id}`}
+                                                value={oIndex}
+                                                onChange={() => handleAnswerSelect(q.id, oIndex)}
+                                                checked={selectedAnswers[q.id] === oIndex}
+                                                className="mr-2"
+                                            />
+                                            {option}
+                                        </label>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* --- IDENTIFICATION --- */}
+                            {q.type === 'identification' && (
+                                <input
+                                    type="text"
+                                    placeholder="Type your answer here..."
+                                    value={(selectedAnswers[q.id] as string) || ''}
+                                    onChange={(e) => handleAnswerSelect(q.id, e.target.value)}
+                                    className="w-full p-3 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                />
+                            )}
+
+                            {/* --- TRUE OR FALSE --- */}
+                            {q.type === 'true-or-false' && (
+                                <div className="flex space-x-4">
+                                    <label
+                                        className={`flex-1 p-3 border rounded-lg cursor-pointer text-center ${
+                                            selectedAnswers[q.id] === true
+                                                ? 'bg-indigo-100 border-indigo-400'
+                                                : 'bg-white hover:bg-gray-100'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name={`question-${q.id}`}
+                                            onChange={() => handleAnswerSelect(q.id, true)}
+                                            checked={selectedAnswers[q.id] === true}
+                                            className="mr-2"
+                                        />
+                                        True
+                                    </label>
+                                    <label
+                                        className={`flex-1 p-3 border rounded-lg cursor-pointer text-center ${
+                                            selectedAnswers[q.id] === false
+                                                ? 'bg-indigo-100 border-indigo-400'
+                                                : 'bg-white hover:bg-gray-100'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name={`question-${q.id}`}
+                                            onChange={() => handleAnswerSelect(q.id, false)}
+                                            checked={selectedAnswers[q.id] === false}
+                                            className="mr-2"
+                                        />
+                                        False
+                                    </label>
+                                </div>
+                            )}
                         </div>
                     </div>
                 ))}
@@ -313,15 +414,9 @@ const QuizTaker = ({
     );
 };
 
-// --- QuizResult Component ---
+// --- UPDATED QuizResult Component ---
 const QuizResult = ({ attempt, quiz }: { attempt: QuizAttempt; quiz: Quiz }) => {
-    const getOptionClassName = (qIndex: number, oIndex: number) => {
-        const isCorrect = quiz.questions[qIndex].correctAnswerIndex === oIndex;
-        const isSelected = attempt.answers[qIndex] === oIndex;
-        if (isCorrect) return 'bg-green-100 border-green-400 font-bold';
-        if (isSelected && !isCorrect) return 'bg-red-100 border-red-400';
-        return 'bg-gray-50';
-    };
+    
     return (
         <div className="mt-12 pt-8 border-t">
             <h2 className="text-2xl font-bold mb-2">Quiz Results</h2>
@@ -329,32 +424,96 @@ const QuizResult = ({ attempt, quiz }: { attempt: QuizAttempt; quiz: Quiz }) => 
                 Your Score: {attempt.score} / {attempt.totalQuestions}
             </p>
             <div className="space-y-6">
-                {quiz.questions.map((q, qIndex) => (
-                    <div key={qIndex}>
-                        <p className="font-semibold">
-                            {qIndex + 1}. {q.questionText}
-                        </p>
-                        <div className="mt-2 space-y-2">
-                            {q.options.map((option, oIndex) => (
-                                <div
-                                    key={oIndex}
-                                    className={`block p-3 border rounded-lg text-sm ${getOptionClassName(
-                                        qIndex,
-                                        oIndex
-                                    )}`}
-                                >
-                                    {option}
-                                    {quiz.questions[qIndex].correctAnswerIndex === oIndex && (
-                                        <span className="ml-2 text-green-700 font-bold">(Correct Answer)</span>
-                                    )}
-                                    {attempt.answers[qIndex] === oIndex && quiz.questions[qIndex].correctAnswerIndex !== oIndex && (
-                                        <span className="ml-2 text-red-700 font-bold">(Your Answer)</span>
-                                    )}
+                {quiz.questions.map((q, qIndex) => {
+                    const studentAnswer = attempt.answers[q.id];
+                    let isCorrect = false;
+                    let correctAnswerDisplay = '';
+
+                    // Determine correctness and correct answer string based on type
+                    if (q.type === 'multiple-choice') {
+                        isCorrect = studentAnswer === q.correctAnswerIndex;
+                        correctAnswerDisplay = q.options[q.correctAnswerIndex];
+                    } else if (q.type === 'identification') {
+                        isCorrect =
+                            typeof studentAnswer === 'string' &&
+                            studentAnswer.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase();
+                        correctAnswerDisplay = q.correctAnswer;
+                    } else if (q.type === 'true-or-false') {
+                        isCorrect = studentAnswer === q.correctAnswer;
+                        correctAnswerDisplay = q.correctAnswer ? 'True' : 'False';
+                    }
+
+                    return (
+                        <div key={q.id} className="p-4 border rounded-lg bg-gray-50">
+                            <p className="font-semibold mb-2">
+                                {qIndex + 1}. {q.questionText}
+                            </p>
+
+                            {/* --- RENDER MULTIPLE CHOICE RESULTS --- */}
+                            {q.type === 'multiple-choice' && (
+                                <div className="space-y-1">
+                                    {q.options.map((option, oIndex) => {
+                                        const isSelected = studentAnswer === oIndex;
+                                        const isThisCorrect = q.correctAnswerIndex === oIndex;
+                                        let styleClass = 'bg-white';
+                                        
+                                        if (isThisCorrect) styleClass = 'bg-green-100 border-green-400 font-bold';
+                                        else if (isSelected && !isThisCorrect) styleClass = 'bg-red-100 border-red-400';
+
+                                        return (
+                                            <div
+                                                key={oIndex}
+                                                className={`p-2 border rounded text-sm ${styleClass}`}
+                                            >
+                                                {option}
+                                                {isThisCorrect && <span className="ml-2 text-green-700">(Correct)</span>}
+                                                {isSelected && !isThisCorrect && <span className="ml-2 text-red-700">(Your Answer)</span>}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                            ))}
+                            )}
+
+                            {/* --- RENDER IDENTIFICATION RESULTS --- */}
+                            {q.type === 'identification' && (
+                                <div className="mt-2">
+                                    <div className={`p-3 border rounded-md ${isCorrect ? 'bg-green-100 border-green-400' : 'bg-red-100 border-red-400'}`}>
+                                        <p>
+                                            <span className="font-bold">Your Answer: </span>
+                                            {studentAnswer as string || '(No Answer)'}
+                                        </p>
+                                        {!isCorrect && (
+                                            <p className="mt-1 text-sm text-gray-700">
+                                                <span className="font-bold">Correct Answer: </span>
+                                                {q.correctAnswer}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* --- RENDER TRUE/FALSE RESULTS --- */}
+                            {q.type === 'true-or-false' && (
+                                <div className="mt-2 flex gap-4">
+                                    <div className={`flex-1 p-3 border rounded-md text-center ${
+                                        studentAnswer === true 
+                                            ? (q.correctAnswer === true ? 'bg-green-100 border-green-400' : 'bg-red-100 border-red-400') 
+                                            : (q.correctAnswer === true ? 'bg-green-50 border-green-200' : 'bg-white')
+                                    }`}>
+                                        True {q.correctAnswer === true && '✅'}
+                                    </div>
+                                    <div className={`flex-1 p-3 border rounded-md text-center ${
+                                        studentAnswer === false
+                                            ? (q.correctAnswer === false ? 'bg-green-100 border-green-400' : 'bg-red-100 border-red-400')
+                                            : (q.correctAnswer === false ? 'bg-green-50 border-green-200' : 'bg-white')
+                                    }`}>
+                                        False {q.correctAnswer === false && '✅'}
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );
@@ -504,7 +663,6 @@ export default function CourseViewerPage() {
                                         title: qData.title,
                                         questions: qData.questions || [],
                                         dueDate: qData.dueDate,
-                                        // createdAt may be available in qData
                                         createdAt: qData.createdAt,
                                     } as Quiz);
                                 }

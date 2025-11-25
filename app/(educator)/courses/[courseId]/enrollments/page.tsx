@@ -1,5 +1,3 @@
-// app/(educator)/courses/[courseId]/enrollments/page.tsx
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -8,15 +6,12 @@ import {
   doc,
   getDocs,
   query,
-  updateDoc,
   where,
   writeBatch,
   serverTimestamp,
-  setDoc,
   limit,
   arrayUnion,
   arrayRemove,
-  deleteDoc, // Imported for removal functionality
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
@@ -41,61 +36,67 @@ export default function EnrollmentsPage() {
   // 🔹 Fetch all enrollment requests for this course
   const fetchRequests = async () => {
     if (!courseId) return;
-    const requestsCollectionRef = collection(
-      db,
-      'courses',
-      courseId,
-      'enrollmentRequests'
-    );
-    const q = query(requestsCollectionRef);
-    const querySnapshot = await getDocs(q);
-    const requestsList = querySnapshot.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-    })) as EnrollmentRequest[];
-    setRequests(requestsList);
+    try {
+      const requestsCollectionRef = collection(
+        db,
+        'courses',
+        courseId,
+        'enrollmentRequests'
+      );
+      const q = query(requestsCollectionRef);
+      const querySnapshot = await getDocs(q);
+      const requestsList = querySnapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      })) as EnrollmentRequest[];
+      setRequests(requestsList);
+    } catch (err) {
+      console.error("Error fetching requests:", err);
+    }
   };
 
   useEffect(() => {
     if (courseId) fetchRequests();
   }, [courseId]);
 
-  // 🔹 Approve or reject enrollment requests (from File 1)
+  // 🔹 Approve or reject enrollment requests
   const handleUpdateRequest = async (
     userId: string,
     status: 'enrolled' | 'rejected'
   ) => {
     try {
-      const requestDocRef = doc(
-        db,
-        'courses',
-        courseId,
-        'enrollmentRequests',
-        userId
-      );
+      const requestDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', userId);
       const userDocRef = doc(db, 'users', userId);
+      
+      // Reference to the student's notification collection
+      const notificationRef = doc(collection(db, 'users', userId, 'notifications'));
+
       const batch = writeBatch(db);
 
-      // --- START: Update request status and notification flag ---
-      const requestUpdateData: { status: 'enrolled' | 'rejected'; acknowledgedByStudent?: boolean } = {
+      // 1. Update the Request Status
+      batch.update(requestDocRef, { 
         status: status,
-      };
+        acknowledgedByStudent: false 
+      });
 
+      // 2. Update the User's Profile (enrolledCourses)
       if (status === 'enrolled') {
-        // CRITICAL: Triggers the student notification on the dashboard
-        requestUpdateData.acknowledgedByStudent = false; 
-      }
-      
-      batch.update(requestDocRef, requestUpdateData);
-      // --- END: Update request status and notification flag ---
-
-      // Update user's enrolledCourses
-      if (status === 'enrolled') {
+        // This 'arrayUnion' is permitted by the new "affectedKeys" rule
         batch.update(userDocRef, {
           enrolledCourses: arrayUnion(courseId),
         });
+
+        // 3. Create Notification (Permitted by "allow create: if isSignedIn()")
+        batch.set(notificationRef, {
+            message: `You have been enrolled in the course!`, 
+            courseId: courseId,
+            type: 'enrollment_approved',
+            createdAt: serverTimestamp(),
+            isRead: false
+        });
+
       } else {
-        // If rejected, also remove from user's list just in case they were previously enrolled (though unlikely for pending)
+        // If rejected, clean up just in case
         batch.update(userDocRef, {
           enrolledCourses: arrayRemove(courseId),
         });
@@ -103,13 +104,15 @@ export default function EnrollmentsPage() {
 
       await batch.commit();
       await fetchRequests();
+      setMessage(`Successfully ${status === 'enrolled' ? 'approved' : 'rejected'} student.`);
+      setTimeout(() => setMessage(''), 3000);
     } catch (err: any) {
       console.error('Error updating request:', err);
-      setError('Failed to update enrollment request.');
+      setError('Failed to update enrollment request. Check permissions.');
     }
   };
 
-  // 🔹 Manually add a student by email (from File 1)
+  // 🔹 Manually add a student by email
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -117,7 +120,7 @@ export default function EnrollmentsPage() {
     if (!addEmail.trim()) return;
 
     try {
-      // Find user by email
+      // 1. Find user by email
       const usersCollectionRef = collection(db, 'users');
       const q = query(
         usersCollectionRef,
@@ -133,33 +136,39 @@ export default function EnrollmentsPage() {
       const userDoc = userSnapshot.docs[0];
       const userId = userDoc.id;
 
-      // Batch write: add to course + user profile
-      const requestDocRef = doc(
-        db,
-        'courses',
-        courseId,
-        'enrollmentRequests',
-        userId
-      );
+      // 2. Prepare references
+      const requestDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', userId);
       const userDocRef = doc(db, 'users', userId);
+      const notificationRef = doc(collection(db, 'users', userId, 'notifications'));
+
       const batch = writeBatch(db);
 
-      // --- START: Set status and notification flag on manual add ---
+      // 3. Create/Update Enrollment Request
       batch.set(
         requestDocRef,
         {
           status: 'enrolled',
           studentEmail: addEmail.trim(),
           addedAt: serverTimestamp(),
-          // CRITICAL: Triggers the student notification on the dashboard
           acknowledgedByStudent: false, 
+          studentId: userId, // Ensure ID is saved for consistency
+          courseId: courseId
         },
         { merge: true }
       );
-      // --- END: Set status and notification flag on manual add ---
 
+      // 4. Update User Profile
       batch.update(userDocRef, {
         enrolledCourses: arrayUnion(courseId),
+      });
+
+      // 5. Create Notification
+      batch.set(notificationRef, {
+        message: `An instructor has enrolled you in a new course!`,
+        courseId: courseId,
+        type: 'enrollment_added',
+        createdAt: serverTimestamp(),
+        isRead: false
       });
 
       await batch.commit();
@@ -168,13 +177,13 @@ export default function EnrollmentsPage() {
       setAddEmail('');
       fetchRequests();
     } catch (err: any) {
+      console.error(err);
       setError(err.message || 'Failed to add student.');
     }
   };
 
-  // 🔹 Remove a student (from File 2)
+  // 🔹 Remove a student
   const handleRemoveStudent = async (userId: string, userEmail: string) => {
-    // Add a confirmation dialog to prevent accidental removal
     if (!window.confirm(`Are you sure you want to remove ${userEmail} from this course? This action cannot be undone.`)) {
       return;
     }
@@ -185,24 +194,23 @@ export default function EnrollmentsPage() {
     const batch = writeBatch(db);
 
     try {
-      // 1. Delete the enrollment request document entirely. This revokes their access.
+      // 1. Delete the enrollment request
       batch.delete(requestDocRef);
 
-      // 2. Update the student's user document to remove the course ID from their list.
+      // 2. Remove from enrolledCourses
+      // This 'arrayRemove' is permitted by the "affectedKeys" rule
       batch.update(userDocRef, {
         enrolledCourses: arrayRemove(courseId)
       });
 
       await batch.commit();
+      
       setMessage(`Successfully removed ${userEmail} from the course.`);
-      // Clear error on success if one was set previously
       setError('');
-      fetchRequests(); // Refresh the UI
-
+      fetchRequests();
     } catch (err) {
       console.error("Failed to remove student:", err);
       setError("Failed to remove student. Please check permissions and try again.");
-      setMessage('');
     }
   };
 
@@ -274,7 +282,7 @@ export default function EnrollmentsPage() {
 
       <hr className="my-8" />
 
-      {/* --- Course Roster (Updated with Remove button) --- */}
+      {/* --- Course Roster (Enrolled) --- */}
       <div>
         <h2 className="text-2xl font-semibold mb-3">👥 Course Roster (Enrolled)</h2>
         <div className="space-y-3">
@@ -286,7 +294,7 @@ export default function EnrollmentsPage() {
                 className="p-4 bg-white shadow rounded-md flex justify-between items-center border"
               >
                 <p className="text-gray-800">{req.studentEmail}</p>
-                {/* --- NEW REMOVE BUTTON --- */}
+                {/* --- REMOVE BUTTON --- */}
                 <button 
                   onClick={() => handleRemoveStudent(req.id, req.studentEmail)}
                   className="px-3 py-1 text-xs font-semibold text-red-700 bg-red-100 rounded-full hover:bg-red-200 transition"

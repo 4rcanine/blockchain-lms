@@ -5,13 +5,13 @@ import {
   doc,
   getDoc,
   collection,
-  collectionGroup,
   query,
   where,
   getDocs,
   updateDoc,
   orderBy,
   limit,
+  deleteDoc,
   DocumentData,
 } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
@@ -23,12 +23,10 @@ import { Loader2, RefreshCcw } from 'lucide-react';
 
 // ----------------------------- Types ------------------------------------
 
-// Define a type for the authenticated user object (used to fix TS7031)
 interface AuthUser {
     uid: string;
     email: string | null;
     displayName: string | null;
-    // Add other properties you rely on from your useAuth user object
 }
 
 interface UserProfile {
@@ -52,32 +50,14 @@ interface Course {
   [k: string]: any;
 }
 
-interface EnrollmentNotification {
+// Updated to match the Notification structure created in previous steps
+interface AppNotification {
+  id: string; // The Firestore Document ID
+  message: string;
   courseId: string;
-  courseTitle: string;
-  enrollmentDocId: string;
-}
-
-// -------------------------- Utility: batch 'in' queries ------------------
-async function fetchDocsByIds(
-  collectionRef: ReturnType<typeof collection>,
-  ids: string[]
-): Promise<DocumentData[]> {
-  if (!ids || ids.length === 0) return [];
-  const batches: string[][] = [];
-  for (let i = 0; i < ids.length; i += 10) batches.push(ids.slice(i, i + 10));
-  const results: DocumentData[] = [];
-  for (const batch of batches) {
-    // Note: The original implementation used '__name__', 'in', which is typically
-    // used for document IDs. For general queries using fields, the 'where'
-    // condition would target that field. Given the context (likely for a future
-    // use case or if `collectionRef` is not 'courses'), I will leave the original
-    // logic as is, assuming it works for the intended Firebase structure.
-    const q = query(collectionRef, where('__name__', 'in', batch));
-    const snap = await getDocs(q);
-    snap.docs.forEach((d) => results.push({ id: d.id, ...(d.data() as any) }));
-  }
-  return results;
+  type: 'enrollment_approved' | 'enrollment_added' | 'enrollment_request';
+  isRead: boolean;
+  createdAt: any;
 }
 
 // ---------------------------- ProgressBar ------------------------
@@ -111,7 +91,6 @@ const CourseCard = ({
   return (
     <div className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow flex flex-col">
       {course.imageUrl ? (
-        // Wrap image with Link
         <Link href={linkHref}>
           <img
             src={course.imageUrl}
@@ -126,11 +105,9 @@ const CourseCard = ({
       )}
 
       <div className="p-4 flex flex-col flex-grow">
-        {/* === UPDATED: Wrap <h3> with <Link> === */}
         <Link href={linkHref} className="hover:underline">
           <h3 className="font-bold text-lg mb-2">{course.title}</h3>
         </Link>
-        {/* ================================== */}
 
         {course.tags && course.tags.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4">
@@ -150,7 +127,6 @@ const CourseCard = ({
           {course.description?.substring(0, 80)}...
         </p>
 
-        {/* --- NEW Progress Bar --- */}
         {isEnrolled && typeof course.progress === 'number' && (
           <div className="mb-2">
             <div className="flex justify-between items-center text-xs text-gray-500">
@@ -174,7 +150,6 @@ const CourseCard = ({
 
 // ------------------------------- Dashboard --------------------------------
 export default function Dashboard() {
-  // FIX: Explicitly type the result of useAuth() to resolve Implicit any type errors
   const { 
     user: authUser, 
     loading: authLoading 
@@ -186,7 +161,7 @@ export default function Dashboard() {
   const [createdCourses, setCreatedCourses] = useState<Course[]>([]);
   const [suggestedCourses, setSuggestedCourses] = useState<Course[]>([]);
   const [recentActivity, setRecentActivity] = useState<Course[]>([]);
-  const [notifications, setNotifications] = useState<EnrollmentNotification[]>([]); // NEW: Notification state
+  const [notifications, setNotifications] = useState<AppNotification[]>([]); 
   const [error, setError] = useState<string | null>(null);
   const [changingPath, setChangingPath] = useState(false);
   const [isDataLoading, setIsDataLoading] = useState(true);
@@ -201,94 +176,65 @@ export default function Dashboard() {
 
       setIsDataLoading(true);
       try {
+        // 1. Fetch User Profile
         const userDocRef = doc(db, 'users', authUser.uid);
         const userSnap = await getDoc(userDocRef);
         if (!userSnap.exists()) throw new Error('User profile not found.');
         const profile = userSnap.data() as UserProfile;
         setUserProfile(profile);
 
-        // --- Student Enrolled Courses with Progress ---
-        let enrolledCourseIds: string[] = [];
-        if (profile.role === 'student') {
-          const reqQuery = query(
-            collectionGroup(db, 'enrollmentRequests'),
-            where('status', '==', 'enrolled'),
-            where('studentId', '==', authUser.uid)
-          );
-          const enrolledSnap = await getDocs(reqQuery);
+        // 2. Fetch Notifications (From the new subcollection)
+        // This fixes the permission error because users always own their notifications subcollection
+        const notifQ = query(
+            collection(db, 'users', authUser.uid, 'notifications'),
+            orderBy('createdAt', 'desc')
+        );
+        const notifSnap = await getDocs(notifQ);
+        const fetchedNotifs = notifSnap.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        })) as AppNotification[];
+        setNotifications(fetchedNotifs);
 
-          if (!enrolledSnap.empty) {
-            const courseIds = enrolledSnap.docs.map((doc) => doc.ref.parent.parent!.id);
-            enrolledCourseIds = courseIds; // Store for notification logic & recent activity filter
-            const progressMap = new Map(
-              enrolledSnap.docs.map((doc) => [
-                doc.ref.parent.parent!.id,
-                doc.data().completedItems?.length || 0,
-              ])
-            );
-
-            const coursesSnap = await getDocs(
-              query(collection(db, 'courses'), where('__name__', 'in', courseIds))
-            );
-
+        // 3. STUDENT LOGIC: Fetch Enrolled Courses
+        if (profile.role === 'student' && profile.enrolledCourses && profile.enrolledCourses.length > 0) {
+            const courseIds = profile.enrolledCourses;
             const coursesList: Course[] = [];
-            for (const courseDoc of coursesSnap.docs) {
-              const cData = { id: courseDoc.id, ...courseDoc.data() } as Course;
-              const modulesSnap = await getDocs(collection(db, 'courses', courseDoc.id, 'modules'));
-              let totalLessons = 0;
-              modulesSnap.forEach((mod) => {
-                totalLessons += mod.data().lessons?.length || 0;
-              });
-              const completed = progressMap.get(courseDoc.id) || 0;
-              cData.progress = totalLessons > 0 ? Math.round((completed / totalLessons) * 100) : 0;
-              coursesList.push(cData);
-            }
+
+            // Fetch course details and progress
+            // We use Promise.all for parallel fetching
+            await Promise.all(courseIds.map(async (courseId) => {
+                // A. Fetch Course Info
+                const courseDocSnap = await getDoc(doc(db, 'courses', courseId));
+                if (!courseDocSnap.exists()) return;
+                const cData = { id: courseDocSnap.id, ...courseDocSnap.data() } as Course;
+
+                // B. Fetch Modules (to count total lessons)
+                const modulesSnap = await getDocs(collection(db, 'courses', courseId, 'modules'));
+                let totalLessons = 0;
+                modulesSnap.forEach((mod) => {
+                    totalLessons += mod.data().lessons?.length || 0;
+                });
+
+                // C. Fetch Enrollment Data (Directly, not via collectionGroup)
+                // This gets the completedItems array
+                const enrollmentDocSnap = await getDoc(doc(db, 'courses', courseId, 'enrollmentRequests', authUser.uid));
+                let completedCount = 0;
+                if(enrollmentDocSnap.exists()) {
+                    completedCount = enrollmentDocSnap.data().completedItems?.length || 0;
+                }
+
+                // D. Calculate Progress
+                cData.progress = totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0;
+                coursesList.push(cData);
+            }));
+
             setEnrolledCourses(coursesList);
-          } else {
+        } else {
             setEnrolledCourses([]);
-          }
-
-          // --- FIX: Fetch Notifications with Deduplication (to solve unique key error) ---
-          const requestsQuery = query(
-            collectionGroup(db, 'enrollmentRequests'),
-            where('studentId', '==', authUser.uid),
-            where('status', '==', 'enrolled'),
-            where('acknowledgedByStudent', '==', false) // Find un-acknowledged approvals
-          );
-          const notificationSnapshot = await getDocs(requestsQuery);
-
-          if (!notificationSnapshot.empty) {
-            // Use a Map to ensure unique entries by enrollmentDocId
-            const notificationMap = new Map<string, EnrollmentNotification>();
-            
-            for (const doc of notificationSnapshot.docs) {
-              const enrollmentDocId = doc.id; // Unique ID of the enrollment request document
-              
-              if (notificationMap.has(enrollmentDocId)) {
-                  console.warn(`Duplicate notification document found for ID: ${enrollmentDocId}`);
-                  continue; // Skip processing the duplicate
-              }
-              
-              const courseId = doc.ref.parent.parent!.id;
-              const courseDoc = await getDoc(doc.ref.parent.parent!);
-              if (courseDoc.exists()) {
-                const newNote: EnrollmentNotification = {
-                  courseId: courseId,
-                  courseTitle: courseDoc.data().title,
-                  enrollmentDocId: enrollmentDocId, // This is the unique key
-                };
-                notificationMap.set(enrollmentDocId, newNote);
-              }
-            }
-            
-            // Convert the Map values back to an array for state
-            setNotifications(Array.from(notificationMap.values()));
-          } else {
-            setNotifications([]);
-          }
         }
 
-        // --- Educator Created Courses ---
+        // 4. EDUCATOR LOGIC: Fetch Created Courses
         if (profile.role === 'educator') {
           const createdQ = query(
             collection(db, 'courses'),
@@ -300,29 +246,18 @@ export default function Dashboard() {
           );
         }
 
-        // --- Recent Activity (Updated to filter out enrolled courses for students) ---
+        // 5. Recent Activity (General Catalog)
         const coursesCollectionRef = collection(db, 'courses');
-        let recentQ;
-        
-        // Batch 'not in' is not directly supported, so we fetch all recent courses
-        // and then filter in memory if the user is a student with enrolled courses.
-        // For simplicity and to use the `limit` clause effectively for *recent* items,
-        // we'll fetch the top 20 and filter in memory if they are enrolled.
-        // A full Firebase-optimized solution would involve querying courses that
-        // don't have an enrollment subcollection for the user, which is complex.
-        
-        // Fetch the top 20 most recently updated courses
-        recentQ = query(coursesCollectionRef, orderBy('updatedAt', 'desc'), limit(20));
+        const recentQ = query(coursesCollectionRef, orderBy('updatedAt', 'desc'), limit(10));
         const recentSnap = await getDocs(recentQ);
         
         let recentCourses = recentSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
 
-        if (profile.role === 'student') {
-            // Filter out courses the student is already enrolled in
-            recentCourses = recentCourses.filter(c => !enrolledCourseIds.includes(c.id));
+        // Filter out courses student is already in
+        if (profile.role === 'student' && profile.enrolledCourses) {
+            recentCourses = recentCourses.filter(c => !profile.enrolledCourses?.includes(c.id));
         }
 
-        // Take the top 5 after filtering
         setRecentActivity(recentCourses.slice(0, 5));
         
       } catch (err) {
@@ -336,23 +271,17 @@ export default function Dashboard() {
     fetchDashboardData();
   }, [authUser, authLoading, router]);
 
-  // --- NEW: Function to dismiss a notification ---
-  const handleDismissNotification = async (notification: EnrollmentNotification) => {
+  // --- Dismiss Notification (Delete from subcollection) ---
+  const handleDismissNotification = async (notification: AppNotification) => {
     try {
-      const requestDocRef = doc(
-        db,
-        'courses',
-        notification.courseId,
-        'enrollmentRequests',
-        notification.enrollmentDocId
-      );
-      await updateDoc(requestDocRef, {
-        acknowledgedByStudent: true,
-      });
-      // Remove the notification from the UI instantly
-      setNotifications((prevNotifications) =>
-        prevNotifications.filter((n) => n.enrollmentDocId !== notification.enrollmentDocId)
-      );
+      if(!authUser) return;
+      
+      // Delete the document from users/{uid}/notifications/{id}
+      const notifRef = doc(db, 'users', authUser.uid, 'notifications', notification.id);
+      await deleteDoc(notifRef);
+
+      // Remove from UI
+      setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
     } catch (error) {
       console.error('Failed to dismiss notification:', error);
     }
@@ -364,8 +293,6 @@ export default function Dashboard() {
     try {
       await updateDoc(doc(db, 'users', authUser.uid), { learningPath: path });
       setUserProfile({ ...userProfile, learningPath: path });
-      // Rerun suggestions after path is saved
-      // NOTE: This effect runs automatically due to the dependency on `userProfile?.learningPath`
     } catch (err) {
       console.error('Failed to save learning path:', err);
     }
@@ -396,7 +323,7 @@ export default function Dashboard() {
       try {
         const allCoursesSnap = await getDocs(collection(db, 'courses'));
         const allCourses = allCoursesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
-        const enrolledIds = enrolledCourses.map(c => c.id); // Use already fetched enrolled courses
+        const enrolledIds = enrolledCourses.map(c => c.id); 
         
         const scored = allCourses
           .map((c) => {
@@ -404,12 +331,7 @@ export default function Dashboard() {
             const score = tags.filter((t) => userProfile.learningPath!.includes(t)).length;
             return { ...c, score };
           })
-          .filter(
-            // Filter by score > 0 AND NOT enrolled
-            (c) =>
-              c.score > 0 &&
-              !enrolledIds.includes(c.id) // Use the enrolledIds list
-          )
+          .filter((c) => c.score > 0 && !enrolledIds.includes(c.id))
           .sort((a, b) => b.score - a.score)
           .slice(0, 3);
         setSuggestedCourses(scored);
@@ -417,7 +339,6 @@ export default function Dashboard() {
         console.error('Failed to generate suggestions:', err);
       }
     };
-    // Re-run when learningPath or enrolledCourses changes
     generateSuggestions();
   }, [userProfile?.learningPath, enrolledCourses]); 
 
@@ -441,26 +362,27 @@ export default function Dashboard() {
 
     return (
       <div className="space-y-12">
-        {/* --- NEW Notification Section --- */}
+        {/* --- Notification Section --- */}
         {notifications.length > 0 && (
           <div className="p-6 bg-green-100 border border-green-300 rounded-lg">
             <h2 className="text-2xl font-semibold text-green-800 mb-4">Notifications</h2>
             <div className='space-y-3'>
               {notifications.map((note) => (
                 <div
-                  key={note.enrollmentDocId} // Use unique doc ID for key (now guaranteed by Map deduplication)
+                  key={note.id}
                   className="flex justify-between items-center bg-white p-3 rounded-md shadow-sm"
                 >
-                  <p>
-                    🎉 You've been enrolled in{' '}
-                    <Link href={`/courses/${note.courseId}/view`} className='font-bold text-indigo-600 hover:underline'>
-                      {note.courseTitle}
-                    </Link>
-                    !
+                  <p className="text-gray-800">
+                    {note.message}
+                    {note.courseId && (
+                        <Link href={`/courses/${note.courseId}/view`} className='ml-2 font-bold text-indigo-600 hover:underline'>
+                            View Course →
+                        </Link>
+                    )}
                   </p>
                   <button
                     onClick={() => handleDismissNotification(note)}
-                    className="text-sm font-semibold text-gray-500 hover:text-gray-800"
+                    className="text-sm font-semibold text-gray-500 hover:text-gray-800 ml-4"
                   >
                     Dismiss
                   </button>
@@ -487,7 +409,7 @@ export default function Dashboard() {
                   <div className="flex flex-wrap gap-2">
                     {learningPath.map((step, i) => (
                       <span
-                        key={i} // Using index is acceptable for static arrays like learningPath
+                        key={i}
                         className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm"
                       >
                         {step}

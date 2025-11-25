@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 
 const sidebarNavLinks = [
     { name: 'Dashboard', href: '/dashboard' },
+    { name: 'Notifications', href: '/notifications' },
     { name: 'My Profile', href: '/profile' },
     { name: 'Calendar', href: '/calendar' },
     { name: 'Course Catalog', href: '/courses' },

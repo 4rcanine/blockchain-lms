@@ -1,11 +1,16 @@
-//app/courses/[courseId]/page.tsx
+// app/courses/[courseId]/page.tsx
 
 'use client';
 
 import { useEffect, useState } from 'react';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../../firebase/config'; // Adjust path
-import useAuth from '../../../hooks/useAuth'; // Adjust path
+import { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  serverTimestamp 
+} from 'firebase/firestore';
+import { db } from '@/firebase/config'; // Adjust path as needed
+import useAuth from '@/hooks/useAuth'; // Adjust path as needed
 import { useParams, useRouter } from 'next/navigation';
 
 // Interface for the course data
@@ -13,7 +18,8 @@ interface Course {
   title: string; 
   description: string; 
   tags: string[]; 
-  imageUrl?: string; 
+  imageUrl?: string;
+  instructorIds?: string[]; 
 }
 
 // Type for the enrollment status from the subcollection
@@ -66,26 +72,25 @@ export default function CourseDetailPage() {
     fetchCourseAndEnrollmentStatus();
   }, [courseId, user]);
 
-  /**
-   * Submits a new 'pending' enrollment request to the course's subcollection.
-   */
+ 
   const handleEnroll = async () => {
     if (!user) {
       router.push('/login'); // Redirect to login if not authenticated
       return;
     }
-    
+
     const requestDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
 
     try {
       // Create or update the enrollment request document
+      // We use { merge: true } to avoid overwriting if a doc exists but is in a weird state
       await setDoc(requestDocRef, {
         status: 'pending',
         requestedAt: serverTimestamp(),
         studentEmail: user.email,
-        studentId: user.uid,   // ✅ Added field for indexing
-        courseId: courseId,    // ✅ Added field for indexing
-      }, { merge: true });     // ✅ Prevent overwriting existing data
+        studentId: user.uid,
+        courseId: courseId, 
+      }, { merge: true });
       
       setEnrollmentStatus('pending'); // Optimistically update UI
     } catch (error) {

@@ -318,12 +318,13 @@ const QuizTaker = ({
             <p className="text-gray-600 mb-6">Complete the quiz to test your knowledge.</p>
             <div className="space-y-8">
                 {quiz.questions.map((q, qIndex) => (
-                    <div key={q.id} className="p-4 border rounded-lg bg-gray-50">
+                    // Merged: Uses q.id if available for better React reconciliation, falls back to index
+                    <div key={q.id || qIndex} className="p-4 border rounded-lg bg-gray-50">
                         <p className="font-semibold text-lg mb-3">
                             {qIndex + 1}. {q.questionText}
                         </p>
                         
-                        <div className="mt-2 space-y-2">
+                        <div className="mt-2">
                             {/* --- MULTIPLE CHOICE --- */}
                             {q.type === 'multiple-choice' && (
                                 <div className="space-y-2">
@@ -444,7 +445,8 @@ const QuizResult = ({ attempt, quiz }: { attempt: QuizAttempt; quiz: Quiz }) => 
                     }
 
                     return (
-                        <div key={q.id} className="p-4 border rounded-lg bg-gray-50">
+                        // Merged: Uses q.id if available, falls back to index
+                        <div key={q.id || qIndex} className="p-4 border rounded-lg bg-gray-50">
                             <p className="font-semibold mb-2">
                                 {qIndex + 1}. {q.questionText}
                             </p>

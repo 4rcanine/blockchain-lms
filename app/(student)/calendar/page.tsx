@@ -6,10 +6,8 @@ import {
   collectionGroup,
   getDocs,
   query,
-  where,
   Timestamp,
   doc,
-  DocumentData,
   getDoc,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
@@ -32,8 +30,6 @@ const localizer = dateFnsLocalizer({
 });
 
 /* ---------------------------- Utility: Course Coloring ----------------------------- */
-
-// NOTE: This array MUST match the hex codes/order in the Educator Manage page to ensure consistency.
 const COLOR_MAP = [
   { hex: '#6366F1' }, // Indigo
   { hex: '#10B981' }, // Emerald
@@ -44,7 +40,6 @@ const COLOR_MAP = [
   { hex: '#EF4444' }, // Red
 ];
 
-// Generates a consistent color object based on a string ID
 const getColorForId = (id: string): (typeof COLOR_MAP)[number] => {
   let hash = 0;
   for (let i = 0; i < id.length; i++) {
@@ -53,7 +48,6 @@ const getColorForId = (id: string): (typeof COLOR_MAP)[number] => {
   const index = Math.abs(hash) % COLOR_MAP.length;
   return COLOR_MAP[index];
 };
-
 
 /* ------------------------------- Types -------------------------------- */
 interface CalendarEvent {
@@ -64,79 +58,68 @@ interface CalendarEvent {
   resource: { courseId: string; courseTitle: string };
 }
 
-interface EnrolledCourseInfo {
-  id: string;
-  title: string;
-}
-
 /* ---------------------------- Main Component --------------------------- */
 export default function CalendarPage() {
   const { user, loading: authLoading } = useAuth();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ NEW STATE: Controlled props for the Calendar component
   const [currentDate, setCurrentDate] = useState(new Date());
   const [currentView, setCurrentView] = useState<'month' | 'week' | 'day' | 'agenda'>('month');
-
 
   useEffect(() => {
     if (authLoading || !user) return;
 
     const fetchQuizEvents = async () => {
       try {
-        console.log('👤 Logged-in user:', user.uid);
+        // 1️⃣ FIX: Fetch Enrolled Courses from User Profile (Instead of Collection Group)
+        // This avoids the "Missing Permissions" error on the enrollmentRequests query
+        const userDocRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userDocRef);
+        
+        if (!userSnap.exists()) {
+            console.warn('User profile not found');
+            setLoading(false);
+            return;
+        }
 
-        // 1️⃣ Get all enrolled courses for the student
-        const enrolledCoursesSnapshot = await getDocs(
-          query(
-            collectionGroup(db, 'enrollmentRequests'),
-            where('status', '==', 'enrolled'),
-            where('studentId', '==', user.uid)
-          )
-        );
+        const userData = userSnap.data();
+        const enrolledCourseIds: string[] = userData.enrolledCourses || [];
 
-        if (enrolledCoursesSnapshot.empty) {
-          console.warn('⚠️ No enrolled courses found for student.');
+        if (enrolledCourseIds.length === 0) {
           setLoading(false);
           return;
         }
 
-        // Map the enrollment documents to get both the courseId and the courseTitle
-        const enrolledCourses: EnrolledCourseInfo[] = await Promise.all(
-          enrolledCoursesSnapshot.docs.map(async (docRef) => {
-            // Get the reference to the parent 'courses/{courseId}' document
-            const courseRef = docRef.ref.parent.parent!;
-            const courseId = courseRef.id;
-            
-            // Fetch the course title
-            const courseSnap = await getDoc(courseRef);
-            
-            const courseTitle = courseSnap.data()?.title || 'Unknown Course';
-            return { id: courseId, title: courseTitle };
-          })
-        );
+        // 2️⃣ Fetch Course Titles for the enrolled IDs
+        // We map the IDs to a Map object for easy lookup: ID -> Title
+        const courseMap = new Map<string, string>();
         
-        const courseIds = enrolledCourses.map(c => c.id);
-        const courseMap = enrolledCourses.reduce((map, course) => {
-            map.set(course.id, course.title);
-            return map;
-        }, new Map<string, string>());
+        await Promise.all(
+            enrolledCourseIds.map(async (courseId) => {
+                try {
+                    const courseSnap = await getDoc(doc(db, 'courses', courseId));
+                    if (courseSnap.exists()) {
+                        courseMap.set(courseId, courseSnap.data().title);
+                    }
+                } catch (e) {
+                    console.error(`Could not fetch course title for ${courseId}`, e);
+                }
+            })
+        );
 
-
-        console.log('✅ Enrolled course IDs:', courseIds);
-
-        // 2️⃣ Fetch all quiz-data documents globally
+        // 3️⃣ Fetch all quiz-data documents globally
+        // Your rules allow "allow read: if isSignedIn()" for quiz-data, so this is safe.
         const quizzesSnapshot = await getDocs(collectionGroup(db, 'quiz-data'));
-        console.log('🧩 Total quiz-data docs fetched:', quizzesSnapshot.size);
 
-        // 3️⃣ Filter and prepare events for enrolled courses
+        // 4️⃣ Filter and prepare events
+        // We only keep quizzes belonging to courses the student is enrolled in
         const quizEvents: CalendarEvent[] = quizzesSnapshot.docs
           .filter((quizDoc) => {
             const quizData = quizDoc.data();
             return (
               quizData.courseId &&
-              courseIds.includes(quizData.courseId) &&
+              enrolledCourseIds.includes(quizData.courseId) && // Filter by enrolled list
               quizData.dueDate
             );
           })
@@ -150,14 +133,13 @@ export default function CalendarPage() {
             if (quizData.dueDate instanceof Timestamp) {
                 dueDate = quizData.dueDate.toDate();
             } else if (quizData.dueDate?.seconds) {
-              // Fallback for objects that look like Timestamps
                 dueDate = new Date(quizData.dueDate.seconds * 1000);
             } else {
                 dueDate = new Date(quizData.dueDate);
             }
 
             return {
-              title: `${courseTitle}: ${quizData.title || 'Quiz'} Due`,
+              title: `${courseTitle}: ${quizData.title || 'Quiz'}`,
               start: dueDate,
               end: dueDate,
               allDay: true,
@@ -165,7 +147,6 @@ export default function CalendarPage() {
             };
           });
 
-        console.log('✅ Final quizEvents array:', quizEvents);
         setEvents(quizEvents);
       } catch (error) {
         console.error('❌ Failed to fetch calendar events:', error);
@@ -177,13 +158,8 @@ export default function CalendarPage() {
     fetchQuizEvents();
   }, [user, authLoading]);
 
-  /**
-   * react-big-calendar prop to apply custom styling to events
-   */
   const eventPropGetter: EventPropGetter<CalendarEvent> = (event) => {
-    // Get the color object and specifically use the 'hex' property
     const color = getColorForId(event.resource.courseId).hex; 
-    
     return {
       style: {
         backgroundColor: color,
@@ -191,16 +167,18 @@ export default function CalendarPage() {
         color: 'white',
         border: '0px',
         fontWeight: 'bold',
+        fontSize: '0.85rem',
+        borderRadius: '6px',
       },
     };
   };
 
-  if (loading) return <p>Loading calendar...</p>;
+  if (loading) return <div className="p-8 text-center text-gray-500">Loading calendar...</div>;
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6">My Calendar</h1>
-      <div className="h-[70vh] bg-white p-4 rounded-lg shadow">
+      <h1 className="text-3xl font-bold mb-6 text-gray-800">My Calendar</h1>
+      <div className="h-[75vh] bg-white p-6 rounded-xl shadow-sm border border-gray-200">
         <Calendar
           localizer={localizer}
           events={events}
@@ -208,12 +186,11 @@ export default function CalendarPage() {
           endAccessor="end"
           style={{ height: '100%' }}
           eventPropGetter={eventPropGetter} 
-          
-          // ✅ CONTROL PROPS ADDED FOR NAVIGATION AND VIEW SWITCHING
           view={currentView}
           date={currentDate}
           onView={(view: any) => setCurrentView(view)}
           onNavigate={(newDate) => setCurrentDate(newDate)}
+          popup // Allows seeing more events in a popup if a day is crowded
         />
       </div>
     </div>

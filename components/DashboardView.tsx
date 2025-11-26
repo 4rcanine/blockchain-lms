@@ -12,14 +12,13 @@ import {
   orderBy,
   limit,
   deleteDoc,
+  collectionGroup,
   DocumentData,
 } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import useAuth from '@/hooks/useAuth';
 import { db } from '@/firebase/config';
 import Link from 'next/link';
-import LearningPathGenerator from '@/components/LearningPathGenerator';
-import { Loader2, RefreshCcw } from 'lucide-react';
 
 // ----------------------------- Types ------------------------------------
 
@@ -50,9 +49,8 @@ interface Course {
   [k: string]: any;
 }
 
-// Updated to match the Notification structure created in previous steps
 interface AppNotification {
-  id: string; // The Firestore Document ID
+  id: string;
   message: string;
   courseId: string;
   type: 'enrollment_approved' | 'enrollment_added' | 'enrollment_request';
@@ -148,8 +146,8 @@ const CourseCard = ({
   );
 };
 
-// ------------------------------- Dashboard --------------------------------
-export default function Dashboard() {
+// ------------------------------- Main Component --------------------------------
+export default function DashboardView() { // Renamed to DashboardView
   const { 
     user: authUser, 
     loading: authLoading 
@@ -163,10 +161,8 @@ export default function Dashboard() {
   const [recentActivity, setRecentActivity] = useState<Course[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]); 
   const [error, setError] = useState<string | null>(null);
-  const [changingPath, setChangingPath] = useState(false);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
-  // ---------------- Fetch Dashboard Data ----------------
   useEffect(() => {
     const fetchDashboardData = async () => {
       if (!authUser) {
@@ -176,15 +172,13 @@ export default function Dashboard() {
 
       setIsDataLoading(true);
       try {
-        // 1. Fetch User Profile
         const userDocRef = doc(db, 'users', authUser.uid);
         const userSnap = await getDoc(userDocRef);
         if (!userSnap.exists()) throw new Error('User profile not found.');
         const profile = userSnap.data() as UserProfile;
         setUserProfile(profile);
 
-        // 2. Fetch Notifications (From the new subcollection)
-        // This fixes the permission error because users always own their notifications subcollection
+        // Fetch Notifications
         const notifQ = query(
             collection(db, 'users', authUser.uid, 'notifications'),
             orderBy('createdAt', 'desc')
@@ -196,35 +190,28 @@ export default function Dashboard() {
         })) as AppNotification[];
         setNotifications(fetchedNotifs);
 
-        // 3. STUDENT LOGIC: Fetch Enrolled Courses
+        // STUDENT LOGIC
         if (profile.role === 'student' && profile.enrolledCourses && profile.enrolledCourses.length > 0) {
             const courseIds = profile.enrolledCourses;
             const coursesList: Course[] = [];
 
-            // Fetch course details and progress
-            // We use Promise.all for parallel fetching
             await Promise.all(courseIds.map(async (courseId) => {
-                // A. Fetch Course Info
                 const courseDocSnap = await getDoc(doc(db, 'courses', courseId));
                 if (!courseDocSnap.exists()) return;
                 const cData = { id: courseDocSnap.id, ...courseDocSnap.data() } as Course;
 
-                // B. Fetch Modules (to count total lessons)
                 const modulesSnap = await getDocs(collection(db, 'courses', courseId, 'modules'));
                 let totalLessons = 0;
                 modulesSnap.forEach((mod) => {
                     totalLessons += mod.data().lessons?.length || 0;
                 });
 
-                // C. Fetch Enrollment Data (Directly, not via collectionGroup)
-                // This gets the completedItems array
                 const enrollmentDocSnap = await getDoc(doc(db, 'courses', courseId, 'enrollmentRequests', authUser.uid));
                 let completedCount = 0;
                 if(enrollmentDocSnap.exists()) {
                     completedCount = enrollmentDocSnap.data().completedItems?.length || 0;
                 }
 
-                // D. Calculate Progress
                 cData.progress = totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0;
                 coursesList.push(cData);
             }));
@@ -234,7 +221,7 @@ export default function Dashboard() {
             setEnrolledCourses([]);
         }
 
-        // 4. EDUCATOR LOGIC: Fetch Created Courses
+        // EDUCATOR LOGIC
         if (profile.role === 'educator') {
           const createdQ = query(
             collection(db, 'courses'),
@@ -246,18 +233,15 @@ export default function Dashboard() {
           );
         }
 
-        // 5. Recent Activity (General Catalog)
+        // Recent Activity
         const coursesCollectionRef = collection(db, 'courses');
         const recentQ = query(coursesCollectionRef, orderBy('updatedAt', 'desc'), limit(10));
         const recentSnap = await getDocs(recentQ);
-        
         let recentCourses = recentSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Course[];
 
-        // Filter out courses student is already in
         if (profile.role === 'student' && profile.enrolledCourses) {
             recentCourses = recentCourses.filter(c => !profile.enrolledCourses?.includes(c.id));
         }
-
         setRecentActivity(recentCourses.slice(0, 5));
         
       } catch (err) {
@@ -271,49 +255,17 @@ export default function Dashboard() {
     fetchDashboardData();
   }, [authUser, authLoading, router]);
 
-  // --- Dismiss Notification (Delete from subcollection) ---
   const handleDismissNotification = async (notification: AppNotification) => {
     try {
       if(!authUser) return;
-      
-      // Delete the document from users/{uid}/notifications/{id}
       const notifRef = doc(db, 'users', authUser.uid, 'notifications', notification.id);
       await deleteDoc(notifRef);
-
-      // Remove from UI
       setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
     } catch (error) {
       console.error('Failed to dismiss notification:', error);
     }
   };
 
-  // ---------------- Save & Change Learning Path ----------------
-  const handleSavePath = async (path: string[]) => {
-    if (!authUser || !userProfile) return;
-    try {
-      await updateDoc(doc(db, 'users', authUser.uid), { learningPath: path });
-      setUserProfile({ ...userProfile, learningPath: path });
-    } catch (err) {
-      console.error('Failed to save learning path:', err);
-    }
-  };
-
-  const handleChangeLearningPath = async () => {
-    if (!authUser || !userProfile) return;
-    if (!confirm('Are you sure you want to change your learning path? This will reset your current path and suggestions.')) return;
-
-    try {
-      setChangingPath(true);
-      await updateDoc(doc(db, 'users', authUser.uid), { learningPath: [] });
-      setUserProfile({ ...userProfile, learningPath: [] });
-    } catch (err) {
-      console.error('Failed to reset learning path:', err);
-    } finally {
-      setChangingPath(false);
-    }
-  };
-
-  // ---------------- Generate Suggested Courses ----------------
   useEffect(() => {
     const generateSuggestions = async () => {
       if (!userProfile?.learningPath?.length) {
@@ -342,7 +294,6 @@ export default function Dashboard() {
     generateSuggestions();
   }, [userProfile?.learningPath, enrolledCourses]); 
 
-  // ---------------- Render Sections ----------------
   const renderRecentActivity = () =>
     recentActivity.length ? (
       <div>
@@ -357,21 +308,14 @@ export default function Dashboard() {
 
   const renderStudentDashboard = () => {
     if (!userProfile) return null;
-    const learningPath = userProfile.learningPath || [];
-    const firstStep = learningPath[0];
-
     return (
       <div className="space-y-12">
-        {/* --- Notification Section --- */}
         {notifications.length > 0 && (
           <div className="p-6 bg-green-100 border border-green-300 rounded-lg">
             <h2 className="text-2xl font-semibold text-green-800 mb-4">Notifications</h2>
             <div className='space-y-3'>
               {notifications.map((note) => (
-                <div
-                  key={note.id}
-                  className="flex justify-between items-center bg-white p-3 rounded-md shadow-sm"
-                >
+                <div key={note.id} className="flex justify-between items-center bg-white p-3 rounded-md shadow-sm">
                   <p className="text-gray-800">
                     {note.message}
                     {note.courseId && (
@@ -380,10 +324,7 @@ export default function Dashboard() {
                         </Link>
                     )}
                   </p>
-                  <button
-                    onClick={() => handleDismissNotification(note)}
-                    className="text-sm font-semibold text-gray-500 hover:text-gray-800 ml-4"
-                  >
+                  <button onClick={() => handleDismissNotification(note)} className="text-sm font-semibold text-gray-500 hover:text-gray-800 ml-4">
                     Dismiss
                   </button>
                 </div>
@@ -391,72 +332,16 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-
-        {!learningPath.length ? (
+        {suggestedCourses.length > 0 && (
           <div>
-            <h2 className="text-2xl font-semibold mb-4">Personalize Your Learning</h2>
-            <p className="text-sm text-gray-600 mb-4">
-              Generate a learning path and we’ll suggest courses tailored to your goals.
-            </p>
-            <LearningPathGenerator onPathGenerated={handleSavePath} />
-          </div>
-        ) : (
-          <div className="space-y-8">
-            <div className="bg-white p-6 rounded-lg shadow">
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-                <div>
-                  <h2 className="text-2xl font-semibold mb-3">🎯 Your Learning Path</h2>
-                  <div className="flex flex-wrap gap-2">
-                    {learningPath.map((step, i) => (
-                      <span
-                        key={i}
-                        className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm"
-                      >
-                        {step}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <button
-                  onClick={handleChangeLearningPath}
-                  disabled={changingPath}
-                  className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 disabled:opacity-50 transition"
-                >
-                  {changingPath ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Changing...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCcw className="w-4 h-4" /> Change Learning Path
-                    </>
-                  )}
-                </button>
-              </div>
+            <h2 className="text-2xl font-semibold mb-4">📚 Courses Suggested For You</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {suggestedCourses.map((c) => (
+                <CourseCard key={c.id} course={c} isEnrolled={false} />
+              ))}
             </div>
-
-            {firstStep && (
-              <div className="bg-indigo-50 p-6 rounded-lg border border-indigo-200">
-                <h3 className="text-xl font-semibold">🚀 Start Here</h3>
-                <p className="text-gray-700">
-                  Begin with: <span className="font-bold text-indigo-700">{firstStep}</span>
-                </p>
-              </div>
-            )}
-
-            {suggestedCourses.length > 0 && (
-              <div>
-                <h2 className="text-2xl font-semibold mb-4">📚 Courses Suggested For You</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {suggestedCourses.map((c) => (
-                    <CourseCard key={c.id} course={c} isEnrolled={false} />
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
-
         <div>
           <h2 className="text-2xl font-semibold mb-4">My Enrolled Courses</h2>
           {enrolledCourses.length > 0 ? (
@@ -466,15 +351,9 @@ export default function Dashboard() {
               ))}
             </div>
           ) : (
-            <p>
-              You are not yet enrolled in any courses.{' '}
-              <Link href="/courses" className="text-indigo-600 hover:underline">
-                Browse the catalog!
-              </Link>
-            </p>
+            <p>You are not yet enrolled in any courses. <Link href="/courses" className="text-indigo-600 hover:underline">Browse the catalog!</Link></p>
           )}
         </div>
-
         {renderRecentActivity()}
       </div>
     );
@@ -485,10 +364,7 @@ export default function Dashboard() {
       <div>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-2xl font-semibold">My Created Courses</h2>
-          <Link
-            href="/courses/create"
-            className="px-4 py-2 font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
-          >
+          <Link href="/courses/create" className="px-4 py-2 font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700">
             Create New Course
           </Link>
         </div>
@@ -502,7 +378,6 @@ export default function Dashboard() {
           <p>You have not created any courses yet.</p>
         )}
       </div>
-
       {renderRecentActivity()}
     </div>
   );
@@ -511,41 +386,28 @@ export default function Dashboard() {
     <div className="p-6 bg-gray-100 rounded-lg">
       <h2 className="text-2xl font-semibold mb-4">Admin Tools</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Link
-          href="/admin/users"
-          className="block p-4 bg-white rounded-md shadow hover:shadow-lg transition-shadow"
-        >
+        <Link href="/admin/users" className="block p-4 bg-white rounded-md shadow hover:shadow-lg transition-shadow">
           <h3 className="font-bold">User Management</h3>
           <p className="text-sm text-gray-600">View and manage all users.</p>
         </Link>
-        <Link
-          href="/admin/tags"
-          className="block p-4 bg-white rounded-md shadow hover:shadow-lg transition-shadow"
-        >
+        <Link href="/admin/tags" className="block p-4 bg-white rounded-md shadow hover:shadow-lg transition-shadow">
           <h3 className="font-bold">Tag Management</h3>
           <p className="text-sm text-gray-600">Create and manage course tags.</p>
         </Link>
       </div>
-
       {renderRecentActivity()}
     </div>
   );
 
-  // -------------------- Main Render --------------------
-  if (authLoading || isDataLoading)
-    return <div className="text-center mt-10">Loading Dashboard...</div>;
-  if (error)
-    return <div className="text-center mt-10 text-red-500">{error}</div>;
+  if (authLoading || isDataLoading) return <div className="text-center mt-10">Loading Dashboard...</div>;
+  if (error) return <div className="text-center mt-10 text-red-500">{error}</div>;
 
   return (
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold">Dashboard</h1>
-        <p className="text-gray-600">
-          Welcome back, {userProfile?.displayName || authUser?.displayName || userProfile?.email}!
-        </p>
+        <p className="text-gray-600">Welcome back, {userProfile?.displayName || authUser?.displayName || userProfile?.email}!</p>
       </div>
-
       {userProfile?.role === 'student' && renderStudentDashboard()}
       {userProfile?.role === 'educator' && renderEducatorDashboard()}
       {userProfile?.role === 'admin' && renderAdminDashboard()}

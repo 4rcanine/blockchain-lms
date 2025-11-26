@@ -7,14 +7,23 @@ import { usePathname } from 'next/navigation';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
+import { 
+    LayoutDashboard, 
+    BookCopy, 
+    Bell, 
+    UserCircle, 
+    PlusSquare,
+    PenTool
+} from 'lucide-react';
 
-// Navigation links for the Educator Sidebar
 const sidebarNavLinks = [
-    { name: 'My Dashboard', href: '/dashboard' },
-    // Note: Ensure this path exists in your app structure
-    { name: 'My Courses', href: '/courses' }, 
-    { name: 'Notifications', href: '/notifications' },
-    { name: 'My Profile', href: '/profile' },
+    // --- FIX: Point directly to the specific educator dashboard URL ---
+    { name: 'Dashboard', href: '/educator/dashboard', icon: LayoutDashboard },
+    
+    { name: 'My Courses', href: '/courses/my-courses', icon: BookCopy },
+    { name: 'Create Course', href: '/courses/create', icon: PlusSquare },
+    { name: 'Notifications', href: '/notifications', icon: Bell },
+    { name: 'My Profile', href: '/profile', icon: UserCircle },
 ];
 
 export default function EducatorLayout({
@@ -26,55 +35,63 @@ export default function EducatorLayout({
     const pathname = usePathname();
     const [unreadCount, setUnreadCount] = useState(0);
 
-    // --- Real-time Notification Listener ---
     useEffect(() => {
         if (!user) return;
-
-        // Listen to the user's subcollection for unread items
         const notifsRef = collection(db, 'users', user.uid, 'notifications');
         const q = query(notifsRef, where('isRead', '==', false));
-
-        // onSnapshot creates a real-time listener
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setUnreadCount(snapshot.size);
         });
-
-        // Cleanup the listener when the component unmounts
         return () => unsubscribe();
     }, [user]);
 
     return (
-        <div className="flex">
-            {/* Helper style to calculate height based on your global Header */}
+        <div className="flex bg-slate-50">
             <style jsx global>{`
                 .h-screen-minus-header {
-                    min-height: calc(100vh - 70px); /* Adjust 70px to match your Header height */
+                    height: calc(100vh - 70px);
                 }
             `}</style>
 
-            {/* --- SIDEBAR --- */}
-            <aside className="w-64 bg-gray-50 border-r p-6 h-screen-minus-header hidden md:block">
-                <h2 className="text-xl font-bold mb-6 text-indigo-900">Educator Portal</h2>
-                <nav className="space-y-2">
+            <aside className="w-72 bg-white border-r border-gray-100 p-6 h-screen-minus-header hidden md:flex flex-col shadow-[4px_0_24px_-12px_rgba(0,0,0,0.02)] z-10">
+                <div className="flex items-center gap-3 mb-8 px-2">
+                    <div className="p-2 bg-purple-600 rounded-lg shadow-lg shadow-purple-200">
+                        <PenTool className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-800 leading-tight">Educator Hub</h2>
+                        <p className="text-xs text-gray-400 font-medium">Instructor Portal</p>
+                    </div>
+                </div>
+
+                <nav className="space-y-1.5 flex-1">
                     {sidebarNavLinks.map((link) => {
-                        // Check if the current path starts with the link href (for active state)
-                        const isActive = pathname === link.href || (link.href !== '/dashboard' && pathname.startsWith(link.href));
-                        
+                        // Active state logic handles nested routes (except dashboard to avoid overlap)
+                        const isActive = pathname === link.href || (link.href !== '/educator/dashboard' && pathname.startsWith(link.href));
+                        const Icon = link.icon;
+
                         return (
                             <Link
                                 key={link.name}
                                 href={link.href}
-                                className={`flex justify-between items-center px-4 py-3 rounded-md text-sm font-medium transition-colors ${
-                                    isActive
-                                        ? 'bg-indigo-100 text-indigo-700'
-                                        : 'text-gray-600 hover:bg-gray-200'
-                                }`}
+                                className={`
+                                    group flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ease-in-out
+                                    ${isActive 
+                                        ? 'bg-purple-50 text-purple-700 shadow-sm translate-x-1' 
+                                        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 hover:translate-x-1'
+                                    }
+                                `}
                             >
-                                <span>{link.name}</span>
+                                <div className="flex items-center gap-3">
+                                    <Icon 
+                                        className={`w-5 h-5 transition-colors ${isActive ? 'text-purple-600' : 'text-gray-400 group-hover:text-gray-600'}`} 
+                                        strokeWidth={isActive ? 2.5 : 2}
+                                    />
+                                    {link.name}
+                                </div>
                                 
-                                {/* --- NOTIFICATION BADGE --- */}
                                 {link.name === 'Notifications' && unreadCount > 0 && (
-                                    <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white bg-red-600 rounded-full shadow-sm">
+                                    <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-red-100 bg-red-600 rounded-full">
                                         {unreadCount}
                                     </span>
                                 )}
@@ -84,9 +101,10 @@ export default function EducatorLayout({
                 </nav>
             </aside>
 
-            {/* --- MAIN CONTENT AREA --- */}
-            <main className="flex-1 p-8 overflow-y-auto h-screen-minus-header bg-white">
-                {children}
+            <main className="flex-1 overflow-y-auto h-screen-minus-header">
+                <div className="max-w-7xl mx-auto p-6 md:p-10">
+                    {children}
+                </div>
             </main>
         </div>
     );

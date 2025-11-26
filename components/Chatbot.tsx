@@ -202,7 +202,7 @@ export default function Chatbot() {
                     <MessageCircle className="w-7 h-7 text-white fill-white/20" />
                 )}
                 
-                {/* Notification ping animation */}
+                {/* Notification ping animation markdown*/}
                 {!isOpen && messages.length === 0 && (
                     <span className="absolute top-0 right-0 flex h-3 w-3">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>

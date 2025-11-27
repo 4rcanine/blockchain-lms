@@ -14,7 +14,7 @@ import {
     UserCircle, 
     PlusSquare,
     PenTool,
-    Settings // Added Settings icon
+    Settings
 } from 'lucide-react';
 
 const sidebarNavLinks = [
@@ -22,8 +22,8 @@ const sidebarNavLinks = [
     { name: 'My Courses', href: '/courses/my-courses', icon: BookCopy },
     { name: 'Create Course', href: '/courses/create', icon: PlusSquare },
     { name: 'Notifications', href: '/notifications', icon: Bell },
-    { name: 'My Profile', href: '/educator/profile', icon: UserCircle }, // Updated path to /educator/profile
-    { name: 'Settings', href: '/educator/settings', icon: Settings },    // Added Settings link
+    { name: 'My Profile', href: '/educator/profile', icon: UserCircle },
+    { name: 'Settings', href: '/educator/settings', icon: Settings },
 ];
 
 export default function EducatorLayout({
@@ -35,6 +35,7 @@ export default function EducatorLayout({
     const pathname = usePathname();
     const [unreadCount, setUnreadCount] = useState(0);
 
+    // Fetch unread notifications count
     useEffect(() => {
         if (!user) return;
         const notifsRef = collection(db, 'users', user.uid, 'notifications');
@@ -46,14 +47,17 @@ export default function EducatorLayout({
     }, [user]);
 
     return (
-        <div className="flex bg-slate-50 dark:bg-gray-900 min-h-screen transition-colors duration-300">
-            <style jsx global>{`
-                .h-screen-minus-header {
-                    height: calc(100vh - 70px);
-                }
-            `}</style>
-
-            <aside className="w-72 bg-white dark:bg-gray-800 border-r border-gray-100 dark:border-gray-700 p-6 h-screen-minus-header hidden md:flex flex-col shadow-[4px_0_24px_-12px_rgba(0,0,0,0.02)] z-10 transition-colors duration-300">
+        // Flex container fills the height provided by RootLayout (h-full)
+        <div className="flex h-full bg-slate-50 dark:bg-gray-900 transition-colors duration-300">
+            
+            {/* 
+              Sidebar:
+              - h-full: Ensures it stretches the full height.
+              - overflow-y-auto: Allows sidebar to scroll independently.
+            */}
+            <aside className="w-72 h-full bg-white dark:bg-gray-800 border-r border-gray-100 dark:border-gray-700 p-6 hidden md:flex flex-col shadow-[4px_0_24px_-12px_rgba(0,0,0,0.02)] z-10 overflow-y-auto transition-colors duration-300">
+                
+                {/* Branding / Header - Matches Student Layout Styling */}
                 <div className="flex items-center gap-3 mb-8 px-2">
                     <div className="p-2 bg-purple-600 rounded-lg shadow-lg shadow-purple-200 dark:shadow-none">
                         <PenTool className="w-6 h-6 text-white" />
@@ -64,6 +68,7 @@ export default function EducatorLayout({
                     </div>
                 </div>
 
+                {/* Navigation Links */}
                 <nav className="space-y-1.5 flex-1">
                     {sidebarNavLinks.map((link) => {
                         const isActive = pathname === link.href || (link.href !== '/educator/dashboard' && pathname.startsWith(link.href));
@@ -100,7 +105,13 @@ export default function EducatorLayout({
                 </nav>
             </aside>
 
-            <main className="flex-1 overflow-y-auto h-screen-minus-header scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
+            {/* 
+              Main Content Area:
+              - flex-1: Takes remaining width.
+              - h-full: Takes full height of container.
+              - overflow-y-auto: Allows content to scroll independently.
+            */}
+            <main className="flex-1 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
                 <div className="max-w-7xl mx-auto p-6 md:p-10">
                     {children}
                 </div>

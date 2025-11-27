@@ -2,8 +2,8 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import Header from '@/components/Header'; // Using the alias for consistency
-import { ThemeProvider } from '@/contexts/ThemeContext'; // Import the ThemeProvider
+import Header from '@/components/Header';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -18,16 +18,28 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
-        <ThemeProvider> {/* Wrap content with the ThemeProvider */}
-          {/* Add a div to manage background and text colors based on the theme, ensuring min-h-screen */}
-          <div className="bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 min-h-screen">
-            <Header /> {/* Add the Header component */}
-            {/* The layout in the first file included specific container/padding for main, 
-                let's re-introduce a reasonable wrapper for the main content */}
-            <main className="container mx-auto px-6 py-8"> 
-              {children} {/* Page content will be rendered here */}
+    <html lang="en" className="h-full">
+      {/* 
+        Applied h-full and theme colors to body to prevent white flashes 
+        during theme switching and ensure full app height.
+      */}
+      <body className={`${inter.className} h-full bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200`}>
+        <ThemeProvider>
+          {/* 
+            Flex Column Structure:
+            Ensures Header stays at the top and Main fills the remaining space.
+          */}
+          <div className="flex flex-col h-full">
+            <Header />
+            
+            {/* 
+              Main Content:
+              - flex-1: Fills remaining vertical space.
+              - overflow-y-auto: Allows independent scrolling of content (keeping Header visible).
+              - Note: Removed 'container' padding here so dashboard/sidebar layouts can use full width.
+            */}
+            <main className="flex-1 overflow-y-auto">
+              {children}
             </main>
           </div>
         </ThemeProvider>

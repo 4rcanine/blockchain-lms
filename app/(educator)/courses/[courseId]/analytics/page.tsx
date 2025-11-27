@@ -7,8 +7,18 @@ import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
 import useAuth from '@/hooks/useAuth';
 import Link from 'next/link';
-//new shit
-import { Bar, Line, Pie } from 'react-chartjs-2'; // <-- NEW CHART IMPORTS
+import { 
+    BarChart3, 
+    TrendingUp, 
+    PieChart, 
+    Users, 
+    CheckCircle, 
+    ArrowLeft, 
+    AlertCircle,
+    Loader2
+} from 'lucide-react';
+
+import { Bar, Line, Pie } from 'react-chartjs-2';
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -19,8 +29,9 @@ import {
     Legend,
     LineElement,
     PointElement,
-    ArcElement // For Pie Chart
-    } from 'chart.js';
+    ArcElement,
+    ChartOptions
+} from 'chart.js';
 
 ChartJS.register(
     CategoryScale,
@@ -33,16 +44,14 @@ ChartJS.register(
     PointElement,
     ArcElement
 );
-    // end new shit
 
+// --- Types ---
 interface Course { title: string; }
-interface EnrolledStudent { id: string; email: string; }
-// new shit
 interface StudentProgress {
-    id: string; // Student UID
+    id: string;
     email: string;
-    progress: number; // e.g., 45
-    status: string; // e.g., 'enrolled'
+    progress: number;
+    status: string;
     latestGrade?: number;
 }
 
@@ -50,24 +59,22 @@ interface AnalyticsSummary {
     totalStudents: number;
     completedCount: number;
     averageProgress: number;
-    // We'll calculate total possible lessons/modules here if possible
 }
 
 interface EnrollmentData {
-    status: 'enrolled' | 'pending' | 'completed'; // Example values
-    progress: number; // The field we need
+    status: 'enrolled' | 'pending' | 'completed';
+    progress: number;
     studentEmail?: string; 
-    // Add any other fields you store in enrollment requests
+    completedItems?: string[];
 }
 
 interface RawGrade {
     studentId: string;
-    activityName: string; // e.g., 'Act 1', 'Act 2'
-    grade: number; // Score out of 100
-    attemptedAt: number; // Timestamp for Line Chart sorting
+    activityName: string;
+    grade: number;
+    attemptedAt: number;
 }
 
-// Data structures for the graphs
 interface ChartData {
     barChartData: ChartDataObject; 
     lineChartData: ChartDataObject; 
@@ -76,19 +83,18 @@ interface ChartData {
 
 interface ChartDataset {
     label: string;
-    data: (number | null)[]; // Use (number | null) for safety
+    data: (number | null)[];
     backgroundColor?: string | string[];
-    borderColor?: string | string[]; // <-- FIX: Add this
-    tension?: number; // Required for smooth lines
+    borderColor?: string | string[];
+    tension?: number;
     hoverOffset?: number;
-    
+    borderWidth?: number;
 }
 
 interface ChartDataObject {
     labels: string[];
     datasets: ChartDataset[];
 }
-// end of new shit
 
 export default function AnalyticsPage() {
     const { user } = useAuth();
@@ -96,92 +102,129 @@ export default function AnalyticsPage() {
     const courseId = params.courseId as string;
 
     const [course, setCourse] = useState<Course | null>(null);
-    const [studentData, setStudentData] = useState<StudentProgress[]>([]); // Store detailed student progress new shit
-    const [summary, setSummary] = useState<AnalyticsSummary | null>(null); // Store calculated stats new shit
-    const [chartData, setChartData] = useState<ChartData | null>(null); // NEW STATE new shit
+    const [studentData, setStudentData] = useState<StudentProgress[]>([]);
+    const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
+    const [chartData, setChartData] = useState<ChartData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Dark Mode Detection for Charts
+    const [isDarkMode, setIsDarkMode] = useState(false);
+    useEffect(() => {
+        // Initial check
+        if (typeof window !== 'undefined') {
+            setIsDarkMode(document.documentElement.classList.contains('dark'));
+        }
+        // Listener for theme changes
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.attributeName === 'class') {
+                    setIsDarkMode(document.documentElement.classList.contains('dark'));
+                }
+            });
+        });
+        observer.observe(document.documentElement, { attributes: true });
+        return () => observer.disconnect();
+    }, []);
+
+    // Chart Options Generator
+    const getChartOptions = (title: string): ChartOptions<any> => ({
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                labels: { color: isDarkMode ? '#e5e7eb' : '#374151' } // gray-200 : gray-700
+            },
+            title: {
+                display: false,
+                text: title,
+                color: isDarkMode ? '#e5e7eb' : '#374151'
+            }
+        },
+        scales: {
+            y: {
+                grid: { color: isDarkMode ? '#374151' : '#e5e7eb' }, // gray-700 : gray-200
+                ticks: { color: isDarkMode ? '#9ca3af' : '#6b7280' } // gray-400 : gray-500
+            },
+            x: {
+                grid: { display: false },
+                ticks: { color: isDarkMode ? '#9ca3af' : '#6b7280' }
+            }
+        }
+    });
+
+    const getPieOptions = (): ChartOptions<'pie'> => ({
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom',
+                labels: { color: isDarkMode ? '#e5e7eb' : '#374151' }
+            }
+        }
+    });
 
     useEffect(() => {
         if (!user || !courseId) return;
 
         const fetchData = async () => {
-            // 1 line newshit
             setLoading(true);
             try {
-                // 1. INITIAL FETCHES (Order doesn't matter yet)
-                // Fetch Course (for Auth)
+                // 1. Fetch Course
                 const courseDocRef = doc(db, 'courses', courseId);
                 const courseDocSnap = await getDoc(courseDocRef);
                 const latestGradesMap = new Map<string, number>();
-                // Fetch Raw Grades new shit
                 
-                
-                //end new shit
-                // --- Authorization Check ---
-                if (
-                !courseDocSnap.exists() ||
-                !courseDocSnap.data().instructorIds?.includes(user.uid)
-                ) {
-                throw new Error("Course not found or you do not have permission to view its analytics.");
+                // Auth Check
+                if (!courseDocSnap.exists() || !courseDocSnap.data().instructorIds?.includes(user.uid)) {
+                    throw new Error("Course not found or unauthorized access.");
                 }
 
                 setCourse(courseDocSnap.data() as Course);
 
+                // 2. Fetch Raw Grades
                 let totalTrackableItems = 0;
-
-                // --- NEW: FETCH RAW GRADES FROM QUIZ ATTEMPTS ---
-            
-            const modulesRef = collection(db, 'courses', courseId, 'modules');
-            const modulesSnapshot = await getDocs(modulesRef);
-            
-            const rawGradesPromises: Promise<RawGrade | null>[] = [];
-            
-            for (const moduleDoc of modulesSnapshot.docs) {
-                const lessonsRef = collection(moduleDoc.ref, 'lessons');
-                const lessonsSnapshot = await getDocs(lessonsRef);
+                const modulesRef = collection(db, 'courses', courseId, 'modules');
+                const modulesSnapshot = await getDocs(modulesRef);
                 
-                for (const lessonDoc of lessonsSnapshot.docs) {
-                    // Check for the 'quizzes' subcollection
-                    totalTrackableItems++;
-
-                    const quizzesRef = collection(lessonDoc.ref, 'quizzes');
-                    const quizzesSnapshot = await getDocs(quizzesRef);
+                const rawGradesPromises: Promise<RawGrade | null>[] = [];
+                
+                for (const moduleDoc of modulesSnapshot.docs) {
+                    const lessonsRef = collection(moduleDoc.ref, 'lessons');
+                    const lessonsSnapshot = await getDocs(lessonsRef);
                     
-                    for (const quizDoc of quizzesSnapshot.docs) {
-                        // Check for the 'quizAttempts' subcollection
-
+                    for (const lessonDoc of lessonsSnapshot.docs) {
+                        totalTrackableItems++;
+                        const quizzesRef = collection(lessonDoc.ref, 'quizzes');
+                        const quizzesSnapshot = await getDocs(quizzesRef);
                         
-
-                        const attemptsRef = collection(quizDoc.ref, 'quizAttempts');
-                        const attemptsSnapshot = await getDocs(attemptsRef);
-                        
-                        attemptsSnapshot.docs.forEach(attemptDoc => {
-                            const attemptData = attemptDoc.data();
+                        for (const quizDoc of quizzesSnapshot.docs) {
+                            const attemptsRef = collection(quizDoc.ref, 'quizAttempts');
+                            const attemptsSnapshot = await getDocs(attemptsRef);
                             
-                            // Map the attempt data to the RawGrade structure
-                            rawGradesPromises.push(Promise.resolve({
-                                studentId: attemptData.studentId, // Assumes studentId is stored here
-                                activityName: `${lessonDoc.data().title} Quiz`, // Use lesson title as activity name
-                                grade: attemptData.score || 0, // Assumes score/grade is stored here
-                                attemptedAt: attemptData.submittedAt?.toMillis() || Date.now(),
-                            } as RawGrade));
-                        });
+                            attemptsSnapshot.docs.forEach(attemptDoc => {
+                                const attemptData = attemptDoc.data();
+                                rawGradesPromises.push(Promise.resolve({
+                                    studentId: attemptData.studentId,
+                                    activityName: `${lessonDoc.data().title} Quiz`,
+                                    grade: attemptData.score || 0,
+                                    attemptedAt: attemptData.submittedAt?.toMillis() || Date.now(),
+                                } as RawGrade));
+                            });
+                        }
                     }
                 }
-            }
             
-            const rawGrades = (await Promise.all(rawGradesPromises)).filter((g): g is RawGrade => g !== null);
-            
+                const rawGrades = (await Promise.all(rawGradesPromises)).filter((g): g is RawGrade => g !== null);
+                
                 rawGrades.forEach(grade => {
-                    // We assume the highest grade is the best indicator, but you could use the latest attemptedAt timestamp
                     const currentHighest = latestGradesMap.get(grade.studentId) || 0;
                     if (grade.grade > currentHighest) {
                         latestGradesMap.set(grade.studentId, grade.grade);
                     }
                 });
 
-                // Fetch Enrollments- new shit
+                // 3. Fetch Enrollments & Users
                 const enrollmentsRef = collection(db, 'courses', courseId, 'enrollmentRequests');
                 const enrolledQuery = query(enrollmentsRef, where('status', '==', 'enrolled'));
                 const enrolledSnapshot = await getDocs(enrolledQuery);
@@ -190,69 +233,46 @@ export default function AnalyticsPage() {
                     ...(doc.data() as EnrollmentData) 
                 }));
                 
-                
-
-                // Fetch User Emails (Requires student UIDs from enrollments)
                 const studentUids = enrollments.map(e => e.id);
                 const usersCollectionRef = collection(db, 'users');
                 
-                // Firestore 'in' queries are limited to 10. If you have >10 students, you need pagination/batching.
+                // Batch fetch users (simplified logic, assumes < 10)
                 const userPromises = studentUids.map(uid => getDoc(doc(usersCollectionRef, uid)));
                 const userSnaps = await Promise.all(userPromises);
 
-                // 2. COMBINE DATA (DEFINE detailedStudentData)
+                // 4. Combine Data
                 let totalProgressSum = 0;
                 let completedCount = 0;
                 
                 const detailedStudentData: StudentProgress[] = enrollments.map(enrollment => {
                     const userData = userSnaps.find(snap => snap.id === enrollment.id)?.data();
-
-                    const enrollmentData = enrollment as unknown as { completedItems: string[] }; 
-                    const completedItems = enrollmentData.completedItems || [];
+                    const completedItems = enrollment.completedItems || [];
 
                     let progress = 0;
                     if (totalTrackableItems > 0) {
-                        // Calculate percentage based on completed items vs total items
                         progress = parseFloat(((completedItems.length / totalTrackableItems) * 100).toFixed(2));
                     }
 
                     totalProgressSum += progress;
-                    if (progress >= 100) {
-                        completedCount++;
-                    }
+                    if (progress >= 100) completedCount++;
 
                     return {
                         id: enrollment.id,
-                        email: userData?.email || 'N/A',
+                        email: userData?.email || 'Unknown User',
                         progress: progress,
                         status: enrollment.status,
                         latestGrade: latestGradesMap.get(enrollment.id),
                     };
                 });
                 
-                const totalStudents = detailedStudentData.length;
-
-
-                // 3. SET STATE & AGGREGATE CHARTS (Must use the newly defined detailedStudentData)
-
                 setStudentData(detailedStudentData);
                 setSummary({
-                    totalStudents: totalStudents,
+                    totalStudents: detailedStudentData.length,
                     completedCount: completedCount,
-                    averageProgress: totalStudents > 0 ? parseFloat((totalProgressSum / totalStudents).toFixed(2)) : 0,
-                });// new shit
-                
-                console.log("PRE-AGGREGATION CHECK: detailedStudentData length:", detailedStudentData.length); 
-                console.log("PRE-AGGREGATION CHECK: rawGrades length:", rawGrades.length);
+                    averageProgress: detailedStudentData.length > 0 ? parseFloat((totalProgressSum / detailedStudentData.length).toFixed(2)) : 0,
+                });
 
-
-                const aggregatedData = aggregateChartData(detailedStudentData, rawGrades); 
-
-
-                console.log("POST-AGGREGATION CHECK: Aggregation succeeded."); 
-                console.log("POST-AGGREGATION CHECK: Bar Data Length:", aggregatedData.barChartData.datasets[0].data.length);
-
-                setChartData(aggregatedData); 
+                setChartData(aggregateChartData(detailedStudentData, rawGrades)); 
 
             } catch (err: any) {
                 setError(err.message);
@@ -263,123 +283,188 @@ export default function AnalyticsPage() {
         fetchData();
     }, [user, courseId]);
 
-    if (loading) return <p>Loading course analytics...</p>;
-    if (error) return <p className="text-red-500">{error}</p>;
-    if (!summary) return <p className="p-8">Course loaded, but summary data is missing.</p>;
-    if (!chartData) return <p className="p-8">Calculating visualizations...</p>;
+    if (loading) return (
+        <div className="flex h-[50vh] items-center justify-center">
+            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mr-2" />
+            <span className="text-gray-500 dark:text-gray-400">Analyzing data...</span>
+        </div>
+    );
+
+    if (error) return (
+        <div className="p-8 text-center">
+            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl inline-flex items-center gap-2 text-red-600 dark:text-red-400">
+                <AlertCircle className="w-5 h-5" /> {error}
+            </div>
+        </div>
+    );
+
+    if (!summary || !chartData) return null;
 
     return (
-        <div>
-            <div className="mb-8">
-                <h1 className="text-sm text-gray-500">Analytics Dashboard for</h1>
-                <h2 className="text-3xl font-bold">{course?.title}</h2>
-                {/*}new shit*/}
-                <div className="mt-4 flex gap-4">
-                    <Link href={`/educator/courses/${courseId}/manage`} className="text-sm text-indigo-600 hover:underline">← Back to Management</Link>
-                </div>
-                {/*} end of new shit*/}
+        <div className="max-w-7xl mx-auto pb-20 space-y-8">
+            {/* Header */}
+            <div className="flex flex-col gap-2">
+                <Link href={`/courses/${courseId}/manage`} className="inline-flex items-center text-sm text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors mb-2">
+                    <ArrowLeft className="w-4 h-4 mr-1" /> Back to Course Management
+                </Link>
+                <h1 className="text-sm font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">Course Analytics</h1>
+                <h2 className="text-3xl font-bold text-gray-900 dark:text-white">{course?.title}</h2>
             </div>
 
-            {/* Stat Cards */}{/*} new shit*/}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <StatCard title="Total Enrolled Students" value={summary.totalStudents} />
-                <StatCard title="Completed Courses" value={summary.completedCount} />
-                <StatCard title="Average Progress" value={`${summary.averageProgress}%`} />
+            {/* Stat Cards Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <StatCard 
+                    icon={<Users className="w-6 h-6 text-blue-600 dark:text-blue-400" />}
+                    title="Active Students" 
+                    value={summary.totalStudents} 
+                    color="bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-900"
+                />
+                <StatCard 
+                    icon={<CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />}
+                    title="Completions" 
+                    value={summary.completedCount} 
+                    color="bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-900"
+                />
+                <StatCard 
+                    icon={<TrendingUp className="w-6 h-6 text-purple-600 dark:text-purple-400" />}
+                    title="Avg. Progress" 
+                    value={`${summary.averageProgress}%`} 
+                    color="bg-purple-50 dark:bg-purple-900/20 border-purple-100 dark:border-purple-900"
+                />
             </div>
 
-            {/* -------------------- VISUALIZATIONS -------------------- */}
-            <div className="space-y-12">
+            {/* Charts Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 
-                {/* BAR CHART: Average Grade Per Activity */}
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-xl font-bold mb-6">Average Grade per Activity</h3>
-                    <div style={{ height: '400px' }}>
-                        <Bar data={chartData.barChartData} options={{ maintainAspectRatio: false }} />
+                {/* Bar Chart */}
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                    <div className="flex items-center gap-2 mb-6">
+                        <BarChart3 className="w-5 h-5 text-gray-400" />
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white">Average Grade per Activity</h3>
+                    </div>
+                    <div className="h-[300px]">
+                        <Bar data={chartData.barChartData} options={getChartOptions('Avg Grades')} />
                     </div>
                 </div>
 
-                {/* LINE CHART: Grade Trends Over Time (Individual Students) */}
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-xl font-bold mb-6">Individual Grade Trends</h3>
-                    <div style={{ height: '400px' }}>
-                        <Line data={chartData.lineChartData} options={{ maintainAspectRatio: false }} />
+                {/* Line Chart */}
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                    <div className="flex items-center gap-2 mb-6">
+                        <TrendingUp className="w-5 h-5 text-gray-400" />
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white">Performance Trends</h3>
+                    </div>
+                    <div className="h-[300px]">
+                        <Line data={chartData.lineChartData} options={getChartOptions('Trends')} />
                     </div>
                 </div>
 
-                {/* PIE CHART: Participation/Engagement */}
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-xl font-bold mb-6">Student Participation Share (Total Submissions)</h3>
-                    <div style={{ maxWidth: '500px', margin: '0 auto' }}>
-                        <Pie data={chartData.pieChartData} />
+                {/* Pie Chart */}
+                <div className="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                    <div className="flex items-center gap-2 mb-6">
+                        <PieChart className="w-5 h-5 text-gray-400" />
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white">Engagement Share (Submissions)</h3>
+                    </div>
+                    <div className="h-[300px] w-full max-w-md mx-auto">
+                        <Pie data={chartData.pieChartData} options={getPieOptions()} />
                     </div>
                 </div>
             </div>
 
-            {/* Enrolled Students Table */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-xl font-bold mb-4">Student Progress Details</h3>
+            {/* Student Table */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-gray-100 dark:border-gray-700">
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white">Detailed Student Progress</h3>
+                </div>
                 <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student Email</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Latest Grade</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">
+                                <th className="px-6 py-4 font-semibold">Student</th>
+                                <th className="px-6 py-4 font-semibold">Progress</th>
+                                <th className="px-6 py-4 font-semibold">Latest Grade</th>
+                                <th className="px-6 py-4 font-semibold">Status</th>
                             </tr>
                         </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {studentData.map(student => (
-                                <tr key={student.id}>
-                                    <td className="px-6 py-4 whitespace-nowrap">{student.email}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="w-24 bg-gray-200 rounded-full h-2.5">
-                                            <div 
-                                                className={`h-2.5 rounded-full ${student.progress >= 100 ? 'bg-green-500' : 'bg-blue-500'}`} 
-                                                style={{ width: `${student.progress}%` }}
-                                            ></div>
-                                        </div>
-                                        <span className="ml-2 text-sm">{student.progress}%</span>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                            {studentData.length === 0 ? (
+                                <tr>
+                                    <td colSpan={4} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400 italic">
+                                        No students enrolled yet.
                                     </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap font-medium">
-                                        {student.latestGrade !== undefined ? `${student.latestGrade}%` : 'N/A'}
-                                    </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{student.progress >= 100 ? 'Completed' : 'In Progress'}</td>
                                 </tr>
-                            ))}
+                            ) : (
+                                studentData.map(student => (
+                                    <tr key={student.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                                        <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">
+                                            {student.email}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                                                    <div 
+                                                        className={`h-full rounded-full ${student.progress >= 100 ? 'bg-green-500' : 'bg-indigo-500'}`} 
+                                                        style={{ width: `${student.progress}%` }}
+                                                    />
+                                                </div>
+                                                <span className="text-sm font-medium text-gray-600 dark:text-gray-300 w-10">{student.progress}%</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-gray-600 dark:text-gray-300">
+                                            {student.latestGrade !== undefined ? (
+                                                <span className="font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-sm">
+                                                    {student.latestGrade}%
+                                                </span>
+                                            ) : (
+                                                <span className="text-gray-400 italic text-xs">No Data</span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                                student.progress >= 100 
+                                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' 
+                                                    : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                                            }`}>
+                                                {student.progress >= 100 ? 'Completed' : 'Active'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
                         </tbody>
                     </table>
-                    {studentData.length === 0 && <p className="text-center py-4">No students are currently enrolled.</p>}
                 </div>
             </div>
-            {/*} end of new shit*/}
         </div>
     );
 }
 
-// Reusable stat component new shit pababa
-const StatCard = ({ title, value }: { title: string, value: string | number }) => (
-    <div className="p-6 border rounded-xl shadow-md bg-white">
-        <p className="text-sm text-gray-500 font-medium">{title}</p>
-        <p className="text-3xl font-extrabold mt-1">{value}</p>
+// --- Components & Helpers ---
+
+const StatCard = ({ title, value, icon, color }: { title: string, value: string | number, icon: React.ReactNode, color: string }) => (
+    <div className={`p-6 rounded-2xl border shadow-sm ${color} transition-transform hover:scale-[1.02]`}>
+        <div className="flex justify-between items-start mb-4">
+            <div>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wide">{title}</p>
+                <p className="text-3xl font-extrabold text-gray-900 dark:text-white mt-1">{value}</p>
+            </div>
+            <div className="p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                {icon}
+            </div>
+        </div>
     </div>
 );
 
 function aggregateChartData(students: StudentProgress[], grades: RawGrade[]): ChartData {
-    // 1. BAR CHART: Average Grade per Activity
+    // 1. Bar Chart
     const activityTotals = new Map<string, { sum: number, count: number }>();
-    const studentGrades = new Map<string, RawGrade[]>(); // For line chart
+    const studentGrades = new Map<string, RawGrade[]>(); 
 
     grades.forEach(grade => {
-        // Bar Chart aggregation
         const activity = activityTotals.get(grade.activityName) || { sum: 0, count: 0 };
         activity.sum += grade.grade;
         activity.count += 1;
         activityTotals.set(grade.activityName, activity);
 
-        // Line Chart prep
         const studentList = studentGrades.get(grade.studentId) || [];
         studentList.push(grade);
         studentGrades.set(grade.studentId, studentList);
@@ -391,45 +476,28 @@ function aggregateChartData(students: StudentProgress[], grades: RawGrade[]): Ch
         return data.sum / data.count;
     });
 
-    const barChartData = {
-        labels: barLabels,
-        datasets: [{
-            label: 'Average Grade (%)',
-            data: barData,
-            backgroundColor: 'rgba(53, 162, 235, 0.5)',
-        }],
-    };
-
-
-    // 2. LINE CHART: Grade Trends over Time (for top 5 activities)
-    const uniqueActivities = Array.from(new Set(grades.map(g => g.activityName))).sort();
+    // 2. Line Chart (Top 3 students for clarity)
     const lineChartDatasets: ChartDataset[] = [];
-    
-    // Use the first few students for trend analysis display
     const studentsToTrack = students.slice(0, 3); 
 
     studentsToTrack.forEach(student => {
         const studentGradesMap = studentGrades.get(student.id) || [];
-        // Sort grades by timestamp to show trend over time
         const sortedGrades = studentGradesMap.sort((a, b) => a.attemptedAt - b.attemptedAt); 
         
         lineChartDatasets.push({
             label: student.email,
             data: sortedGrades.map(g => g.grade),
             borderColor: getRandomColor(), 
-            tension: 0.1,
-});
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            borderWidth: 2,
+        });
     });
 
     const maxAttempts = lineChartDatasets.reduce((max, dataset) => Math.max(max, dataset.data.length), 0);
     const lineLabels = Array.from({ length: maxAttempts }, (_, i) => `Attempt ${i + 1}`);
-    const lineChartData = {
-        labels: lineLabels,
-        datasets: lineChartDatasets,
-    };
 
-
-    // 3. PIE CHART: Participation/Engagement per Student
+    // 3. Pie Chart
     const studentEngagement = new Map<string, number>();
     grades.forEach(grade => {
         studentEngagement.set(grade.studentId, (studentEngagement.get(grade.studentId) || 0) + 1);
@@ -440,28 +508,36 @@ function aggregateChartData(students: StudentProgress[], grades: RawGrade[]): Ch
         const student = students.find(s => s.email === email)!;
         return studentEngagement.get(student.id) || 0;
     });
-    
-    const totalDataPoints = pieData.reduce((sum, count) => sum + count, 0);
 
-    const pieChartData = {
-        labels: pieLabels,
-        datasets: [{
-            label: 'Total Activity Submissions',
-            data: pieData,
-            backgroundColor: pieLabels.map(() => getRandomColor()),
-            hoverOffset: 4
-        }]
+    return {
+        barChartData: {
+            labels: barLabels,
+            datasets: [{
+                label: 'Avg Grade (%)',
+                data: barData,
+                backgroundColor: 'rgba(99, 102, 241, 0.6)', // Indigo-500
+                borderColor: 'rgba(99, 102, 241, 1)',
+                borderWidth: 1,
+            }],
+        },
+        lineChartData: {
+            labels: lineLabels,
+            datasets: lineChartDatasets,
+        },
+        pieChartData: {
+            labels: pieLabels,
+            datasets: [{
+                label: 'Submissions',
+                data: pieData,
+                backgroundColor: pieLabels.map(() => getRandomColor()),
+                hoverOffset: 4,
+                borderWidth: 0,
+            }]
+        }
     };
-
-    return { barChartData, lineChartData, pieChartData };
 }
 
-// Simple utility function for dynamic colors
 const getRandomColor = () => {
-    const letters = '0123456789ABCDEF';
-    let color = '#';
-    for (let i = 0; i < 6; i++) {
-        color += letters[Math.floor(Math.random() * 16)];
-    }
-    return color;
+    const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#10b981', '#3b82f6'];
+    return colors[Math.floor(Math.random() * colors.length)];
 };

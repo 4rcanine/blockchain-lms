@@ -37,7 +37,7 @@ export default function AuthForm({ mode, onSubmit }: AuthFormProps) {
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">I am signing up as a...</label>
                         <div className="flex justify-around">
-                            {(['student', 'educator', 'admin'] as UserRole[]).map((role) => (
+                            {(['student', 'educator'] as UserRole[]).map((role) => (
                                 <label key={role} className="flex items-center space-x-2 cursor-pointer">
                                     <input
                                         type="radio"

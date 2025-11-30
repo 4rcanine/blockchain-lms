@@ -23,8 +23,8 @@ const sidebarNavLinks = [
     { name: 'Course Catalog', href: '/courses', icon: BookOpen },
     { name: 'My Calendar', href: '/calendar', icon: Calendar },
     { name: 'Notifications', href: '/notifications', icon: Bell },
-    { name: 'My Profile', href: '/student/profile', icon: User },     // Points to student profile
-    { name: 'Settings', href: '/student/settings', icon: Settings },   // Points to student settings
+    { name: 'My Profile', href: '/student/profile', icon: User },
+    { name: 'Settings', href: '/student/settings', icon: Settings },
 ];
 
 export default function StudentLayout({
@@ -41,27 +41,43 @@ export default function StudentLayout({
         if (!user) return;
         const notifsRef = collection(db, 'users', user.uid, 'notifications');
         const q = query(notifsRef, where('isRead', '==', false));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            setUnreadCount(snapshot.size);
-        });
+        
+        // --- FIX 1: Added Error Handler to prevent app crash on permission errors ---
+        const unsubscribe = onSnapshot(q, 
+            (snapshot) => {
+                setUnreadCount(snapshot.size);
+            },
+            (error) => {
+                console.log("Notification listener error (safe to ignore if logging out):", error.code);
+            }
+        );
         return () => unsubscribe();
     }, [user]);
 
     return (
-        // Flex container fills the height provided by RootLayout (h-full)
-        <div className="flex h-full bg-slate-50 dark:bg-gray-900 transition-colors duration-300">
+        // --- FIX 2: Layout Structure ---
+        // 1. h-screen: Forces full viewport height
+        // 2. overflow-hidden: Prevents double scrollbars
+        <div className="flex h-screen bg-slate-50 dark:bg-gray-900 transition-colors duration-300 relative overflow-hidden">
             
-            {/* 
-              Sidebar:
-              - h-full: Ensures it stretches the full height of this container.
-              - overflow-y-auto: Allows sidebar to scroll independently if content overflows.
-              - removed manual CSS calc/sticky positioning in favor of Flexbox layout.
-            */}
-            <aside className="w-72 h-full bg-white dark:bg-gray-800 border-r border-gray-100 dark:border-gray-700 p-6 hidden md:flex flex-col shadow-[4px_0_24px_-12px_rgba(0,0,0,0.02)] z-10 overflow-y-auto transition-colors duration-300">
-                
+            {/* Ambient Background Blobs (for Glassmorphism) */}
+            <div className="fixed top-20 left-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none -z-10" />
+            <div className="fixed bottom-0 right-0 w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-3xl pointer-events-none -z-10" />
+
+            {/* Sidebar */}
+            <aside className="
+                w-72 h-full 
+                /* Padding Top 24 (96px) pushes content below the 80px fixed header */
+                pt-24
+                bg-white/60 dark:bg-gray-800/60 backdrop-blur-xl 
+                border-r border-gray-200/50 dark:border-gray-700/50 
+                px-6 pb-6 hidden md:flex flex-col 
+                shadow-[4px_0_24px_-12px_rgba(0,0,0,0.02)] 
+                z-10 overflow-y-auto transition-all duration-300"
+            >
                 {/* Sidebar Header */}
                 <div className="flex items-center gap-3 mb-8 px-2">
-                    <div className="p-2 bg-indigo-600 rounded-lg shadow-lg shadow-indigo-200 dark:shadow-none">
+                    <div className="p-2.5 bg-indigo-600 rounded-xl shadow-lg shadow-indigo-500/20 dark:shadow-none">
                         <GraduationCap className="w-6 h-6 text-white" />
                     </div>
                     <div>
@@ -83,8 +99,8 @@ export default function StudentLayout({
                                 className={`
                                     group flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ease-in-out
                                     ${isActive 
-                                        ? 'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 shadow-sm translate-x-1' 
-                                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-200 hover:translate-x-1'
+                                        ? 'bg-indigo-50/80 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 shadow-sm translate-x-1 backdrop-blur-sm' 
+                                        : 'text-gray-500 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-200 hover:translate-x-1'
                                     }
                                 `}
                             >
@@ -110,22 +126,21 @@ export default function StudentLayout({
                     })}
                 </nav>
 
-                <div className="mt-auto pt-6 border-t border-gray-100 dark:border-gray-700">
-                    <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-4 text-white text-center shadow-md">
+                <div className="mt-auto pt-6 border-t border-gray-100 dark:border-gray-700/50">
+                    <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-4 text-white text-center shadow-lg shadow-indigo-500/20">
                         <p className="text-xs font-semibold opacity-90 mb-1">Keep learning!</p>
                         <p className="text-[10px] opacity-75">Complete your daily goals.</p>
                     </div>
                 </div>
             </aside>
 
-            {/* 
-              Main Content Area:
-              - flex-1: Takes remaining width.
-              - h-full: Takes full height of container.
-              - overflow-y-auto: Allows content to scroll independently.
-            */}
-            <main className="flex-1 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
-                <div className="max-w-7xl mx-auto p-6 md:p-10">
+            {/* Main Content Area */}
+            <main className="flex-1 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent relative z-0">
+                {/* 
+                   Padding Top 24 (96px) ensures the actual dashboard content 
+                   starts below the fixed header 
+                */}
+                <div className="max-w-7xl mx-auto p-6 md:p-10 pt-24">
                     {children}
                 </div>
             </main>

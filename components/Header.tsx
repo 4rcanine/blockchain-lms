@@ -1,17 +1,46 @@
 // components/Header.tsx
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'firebase/auth';
-import { auth } from '@/firebase/config';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
 import Image from 'next/image';
-import { LogOut, User, LogIn, ArrowRight } from 'lucide-react';
+import { LogOut, ArrowRight } from 'lucide-react';
 
 export default function Header() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  
+  // Default to dashboard (the traffic cop) until we know the role
+  const [profileUrl, setProfileUrl] = useState('/dashboard');
+
+  // --- FIX: Fetch Role to determine correct Profile Link ---
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      if (user) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists()) {
+            const role = userDoc.data().role;
+            // Set the specific path based on role
+            if (role === 'educator') {
+                setProfileUrl('/educator/profile');
+            } else {
+                setProfileUrl('/student/profile');
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching role:", error);
+        }
+      }
+    };
+
+    fetchUserRole();
+  }, [user]);
 
   const handleLogout = async () => {
     try {
@@ -25,7 +54,6 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-gray-100 dark:border-gray-800 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md transition-colors duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* FIX: Increased height from h-16 to h-20 */}
         <div className="flex h-20 items-center justify-between">
           
           {/* Left Side: Logo */}
@@ -37,7 +65,6 @@ export default function Header() {
                 width={160}  
                 height={48} 
                 priority
-                // FIX: Increased logo visual height
                 className="h-12 w-auto transition-transform duration-300 group-hover:scale-105" 
               />
             </Link>
@@ -61,9 +88,9 @@ export default function Header() {
                 </div>
 
                 <div className="flex items-center gap-3 pl-4 border-l border-gray-200 dark:border-gray-700 h-10">
-                    {/* Profile Picture */}
+                    {/* FIX: Updated href to use dynamic profileUrl */}
                     <Link 
-                        href="/profile" 
+                        href={profileUrl} 
                         className="relative group focus:outline-none"
                     >
                         {user.photoURL ? (

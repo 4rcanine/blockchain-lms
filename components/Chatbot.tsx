@@ -3,7 +3,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import ReactMarkdown from 'react-markdown'; // <--- IMPORT THIS
+import ReactMarkdown from 'react-markdown';
 import { 
     MessageCircle, 
     X, 
@@ -62,7 +62,7 @@ export default function Chatbot() {
         <>
             {/* --- Chat Window --- */}
             <div 
-                className={`fixed bottom-24 right-6 w-full max-w-[400px] bg-white rounded-2xl shadow-2xl flex flex-col transition-all duration-300 origin-bottom-right z-50 border border-gray-100 overflow-hidden ${
+                className={`fixed bottom-24 right-6 w-full max-w-[400px] bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col transition-all duration-300 origin-bottom-right z-50 border border-gray-100 dark:border-gray-800 overflow-hidden ${
                     isOpen 
                         ? 'opacity-100 scale-100 translate-y-0' 
                         : 'opacity-0 scale-95 translate-y-10 pointer-events-none'
@@ -92,13 +92,13 @@ export default function Chatbot() {
                 </header>
 
                 {/* Messages Area */}
-                <div className="flex-grow p-4 overflow-y-auto bg-slate-50 space-y-4 scrollbar-thin scrollbar-thumb-indigo-200 scrollbar-track-transparent">
+                <div className="flex-grow p-4 overflow-y-auto bg-slate-50 dark:bg-gray-950 space-y-4 scrollbar-thin scrollbar-thumb-indigo-200 dark:scrollbar-thumb-gray-700 scrollbar-track-transparent">
                     {messages.length === 0 && (
-                        <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-400">
-                            <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mb-4">
-                                <Sparkles className="w-8 h-8 text-indigo-500" />
+                        <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-400 dark:text-gray-500">
+                            <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mb-4">
+                                <Sparkles className="w-8 h-8 text-indigo-500 dark:text-indigo-400" />
                             </div>
-                            <p className="font-medium text-gray-600">How can I help you learn Web3 today?</p>
+                            <p className="font-medium text-gray-600 dark:text-gray-300">How can I help you learn Web3 today?</p>
                             <p className="text-xs mt-2">Ask about Solidity, React, or Smart Contracts.</p>
                         </div>
                     )}
@@ -115,23 +115,29 @@ export default function Chatbot() {
                                 className={`p-3.5 max-w-[85%] text-sm leading-relaxed shadow-sm ${
                                     msg.sender === 'user' 
                                         ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm' 
-                                        : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-tl-sm'
+                                        : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-100 dark:border-gray-700 rounded-2xl rounded-tl-sm'
                                 }`}
                             >
                                 {/* --- MARKDOWN RENDERER --- */}
                                 <ReactMarkdown
                                     components={{
-                                        // Custom styling for specific Markdown elements
                                         p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
-                                        strong: ({node, ...props}) => <span className="font-bold" {...props} />,
+                                        strong: ({node, ...props}) => <span className="font-bold text-inherit" {...props} />,
                                         ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-2" {...props} />,
                                         ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-2" {...props} />,
                                         li: ({node, ...props}) => <li className="mb-1" {...props} />,
-                                        h1: ({node, ...props}) => <h1 className="text-lg font-bold mb-2" {...props} />,
-                                        h2: ({node, ...props}) => <h2 className="text-base font-bold mb-2" {...props} />,
-                                        h3: ({node, ...props}) => <h3 className="text-sm font-bold mb-1" {...props} />,
-                                        code: ({node, ...props}) => <code className="bg-black/10 px-1 py-0.5 rounded text-xs font-mono" {...props} />,
-                                        pre: ({node, ...props}) => <pre className="bg-gray-800 text-gray-100 p-2 rounded-lg text-xs overflow-x-auto mb-2" {...props} />,
+                                        h1: ({node, ...props}) => <h1 className="text-lg font-bold mb-2 mt-1" {...props} />,
+                                        h2: ({node, ...props}) => <h2 className="text-base font-bold mb-2 mt-1" {...props} />,
+                                        code: ({node, ...props}) => (
+                                            <code className={`px-1 py-0.5 rounded text-xs font-mono ${
+                                                msg.sender === 'user' 
+                                                    ? 'bg-indigo-700 text-indigo-100' 
+                                                    : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                                            }`} {...props} />
+                                        ),
+                                        pre: ({node, ...props}) => (
+                                            <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-x-auto mb-2 border border-gray-700" {...props} />
+                                        ),
                                     }}
                                 >
                                     {msg.text}
@@ -139,8 +145,8 @@ export default function Chatbot() {
                             </div>
 
                             {msg.sender === 'user' && (
-                                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 mt-1">
-                                    <User className="w-4 h-4 text-gray-500" />
+                                <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0 mt-1">
+                                    <User className="w-4 h-4 text-gray-500 dark:text-gray-300" />
                                 </div>
                             )}
                         </div>
@@ -152,7 +158,7 @@ export default function Chatbot() {
                             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center flex-shrink-0 shadow-sm">
                                 <Bot className="w-4 h-4 text-white" />
                             </div>
-                            <div className="bg-white border border-gray-100 p-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-1">
+                            <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 p-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-1">
                                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
                                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
                                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
@@ -163,7 +169,7 @@ export default function Chatbot() {
                 </div>
 
                 {/* Input Area */}
-                <div className="p-4 bg-white border-t border-gray-100">
+                <div className="p-4 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800">
                     <form onSubmit={handleSubmit} className="relative flex items-center">
                         <input
                             type="text"
@@ -171,18 +177,18 @@ export default function Chatbot() {
                             onChange={e => setInput(e.target.value)}
                             placeholder="Type your question..."
                             disabled={isLoading}
-                            className="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"
+                            className="w-full pl-4 pr-12 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
                         />
                         <button 
                             type="submit" 
                             disabled={!input.trim() || isLoading}
-                            className="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shadow-sm"
+                            className="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed transition-colors shadow-sm"
                         >
                             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                         </button>
                     </form>
                     <div className="text-center mt-2">
-                        <p className="text-[10px] text-gray-400">AI can make mistakes. Verify important info.</p>
+                        <p className="text-[10px] text-gray-400 dark:text-gray-500">AI can make mistakes. Verify important info.</p>
                     </div>
                 </div>
             </div>
@@ -192,7 +198,7 @@ export default function Chatbot() {
                 onClick={() => setIsOpen(!isOpen)}
                 className={`fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg shadow-indigo-500/30 flex items-center justify-center transition-all duration-300 z-[60] group ${
                     isOpen 
-                        ? 'bg-gray-800 rotate-90' 
+                        ? 'bg-gray-800 dark:bg-gray-700 rotate-90' 
                         : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:scale-110'
                 }`}
             >
@@ -202,7 +208,7 @@ export default function Chatbot() {
                     <MessageCircle className="w-7 h-7 text-white fill-white/20" />
                 )}
                 
-                {/* Notification ping animation markdown*/}
+                {/* Notification ping animation */}
                 {!isOpen && messages.length === 0 && (
                     <span className="absolute top-0 right-0 flex h-3 w-3">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>

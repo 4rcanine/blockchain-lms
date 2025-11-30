@@ -1,4 +1,4 @@
-// app/(student)/profile/page.tsx
+// components/ProfileView.tsx
 'use client';
 
 import { useEffect, useState } from 'react';

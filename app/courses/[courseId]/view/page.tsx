@@ -1,4 +1,3 @@
-// app/courses/[courseId]/view/page.tsx
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
@@ -30,10 +29,11 @@ import {
     Video, 
     Code, 
     HelpCircle,
-    Menu,
     Play,
     RotateCcw,
-    Lock
+    Lock,
+    Trophy,
+    History
 } from 'lucide-react';
 
 // --- Type Definitions ---
@@ -97,6 +97,10 @@ interface QuizAttempt {
     submittedAt: any;
 }
 
+interface ReattemptGrant {
+    count: number;
+}
+
 // -- LESSON & MODULE DEFINITIONS --
 interface Lesson {
     id: string;
@@ -104,7 +108,6 @@ interface Lesson {
     content: string;
     qanda?: QandA[];
     quiz?: Quiz;
-    // We handle attempts locally in component state mostly now, but keeping for reference if needed
     sandboxUrl?: string;
     videoUrl?: string; 
 }
@@ -260,49 +263,65 @@ const ClockIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
-// --- NEW QuizStartScreen Component ---
+// --- QuizStartScreen Component (Fixed Type Definition) ---
 const QuizStartScreen = ({ 
     quiz, 
     onStart, 
-    attemptCount, 
+    attempts, 
+    retakesGranted,
     isLocked 
 }: { 
     quiz: Quiz; 
     onStart: () => void; 
-    attemptCount: number;
+    attempts: QuizAttempt[];
+    retakesGranted: number;
     isLocked: boolean;
-}) => (
-    <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700 text-center">
-        <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
-            <HelpCircle className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
-        </div>
-        <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">{quiz.title}</h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-2 max-w-lg mx-auto">
-            This quiz contains {quiz.questions.length} questions.
-        </p>
-        <p className="text-sm text-gray-500 dark:text-gray-500 mb-8">
-            {attemptCount > 0 ? `You have attempted this quiz ${attemptCount} time(s).` : 'You have not attempted this quiz yet.'}
-        </p>
+}) => {
+    const totalAllowedAttempts = 1 + retakesGranted;
+    const attemptsMade = attempts.length;
+    const canTakeQuiz = attemptsMade < totalAllowedAttempts && !isLocked;
 
-        {isLocked ? (
-             <div className="inline-flex items-center gap-2 px-6 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold rounded-xl border border-red-100 dark:border-red-900">
-                <Lock className="w-5 h-5" />
-                <span>Quiz is Locked by Instructor</span>
+    return (
+        <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700 text-center">
+            <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
+                <HelpCircle className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
             </div>
-        ) : (
-            <button 
-                onClick={onStart} 
-                className="inline-flex items-center gap-2 px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg hover:shadow-indigo-500/25 transition-all transform hover:-translate-y-0.5 active:translate-y-0"
-            >
-                <Play className="w-5 h-5" />
-                {attemptCount > 0 ? 'Retake Quiz' : 'Start Quiz'}
-            </button>
-        )}
-    </div>
-);
+            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">{quiz.title}</h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-lg mx-auto">
+                This quiz contains {quiz.questions.length} questions.
+            </p>
+            
+            <div className="flex flex-col items-center justify-center gap-2 mb-8">
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-300">
+                    <History className="w-4 h-4" />
+                    <span>Attempts: {attemptsMade} / {totalAllowedAttempts}</span>
+                </div>
+            </div>
 
+            {isLocked ? (
+                 <div className="inline-flex items-center gap-2 px-6 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold rounded-xl border border-red-100 dark:border-red-900">
+                    <Lock className="w-5 h-5" />
+                    <span>Quiz is Locked by Instructor</span>
+                </div>
+            ) : canTakeQuiz ? (
+                <button 
+                    onClick={onStart} 
+                    className="inline-flex items-center gap-2 px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg hover:shadow-indigo-500/25 transition-all transform hover:-translate-y-0.5 active:translate-y-0"
+                >
+                    <Play className="w-5 h-5" />
+                    {attemptsMade > 0 ? 'Retake Quiz' : 'Start Quiz'}
+                </button>
+            ) : (
+                <div className="inline-flex items-center gap-2 px-6 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 font-bold rounded-xl border border-amber-100 dark:border-amber-900">
+                    <Lock className="w-5 h-5" />
+                    <span>No Attempts Remaining</span>
+                </div>
+            )}
+        </div>
+    );
+};
 
-// --- UPDATED QuizTaker Component ---
+// --- QuizTaker Component ---
 const QuizTaker = ({
     quiz,
     courseId,
@@ -355,8 +374,9 @@ const QuizTaker = ({
             }
         });
 
-        const attemptData: QuizAttempt = {
+        const attemptData = {
             studentId: user.uid,
+            studentEmail: user.email || 'Unknown',
             score: score,
             totalQuestions: quiz.questions.length,
             answers: selectedAnswers,
@@ -365,9 +385,9 @@ const QuizTaker = ({
 
         try {
             const batch = writeBatch(db);
-            // 1. Create a NEW attempt document (using auto-generated ID or timestamp-based ID to allow history)
+            // 1. Create a NEW attempt document with auto-generated ID
             const attemptsCollectionRef = collection(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'quizAttempts');
-            const newAttemptDocRef = doc(attemptsCollectionRef); // Auto-ID
+            const newAttemptDocRef = doc(attemptsCollectionRef);
             batch.set(newAttemptDocRef, attemptData);
 
             // 2. Mark lesson as completed for student
@@ -375,7 +395,6 @@ const QuizTaker = ({
             batch.update(enrollmentDocRef, { completedItems: arrayUnion(lessonId) });
             
             await batch.commit();
-            
             onQuizCompleted();
         } catch (err) {
             console.error('Failed to submit quiz:', err);
@@ -490,33 +509,47 @@ const QuizTaker = ({
     );
 };
 
-// --- UPDATED QuizResult Component ---
+// --- QuizResult Component ---
 const QuizResult = ({ 
-    attempt, 
+    attempts, 
     quiz, 
     canRetake, 
     onRetake 
 }: { 
-    attempt: QuizAttempt; 
+    attempts: QuizAttempt[]; 
     quiz: Quiz; 
     canRetake: boolean;
     onRetake: () => void;
 }) => {
-    const percentage = Math.round((attempt.score / attempt.totalQuestions) * 100);
-    const showAnswers = quiz.settings?.showAnswers ?? true; // Default to true for backward compatibility
+    // The latest attempt is the first one because we order by desc in fetch
+    const latestAttempt = attempts[0];
+    const highestScore = Math.max(...attempts.map(a => a.score));
+    const percentage = Math.round((latestAttempt.score / latestAttempt.totalQuestions) * 100);
+    const showAnswers = quiz.settings?.showAnswers ?? true;
     
     return (
         <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700">
+            {/* Header Card */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-200 dark:border-gray-700">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Quiz Results</h2>
-                    <p className="text-gray-500 dark:text-gray-400 text-sm">{quiz.title}</p>
+                    <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">{quiz.title}</p>
                     
-                    {/* Retake Button */}
+                    <div className="flex items-center gap-4">
+                        <div className="px-3 py-1.5 bg-white dark:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
+                            <Trophy className="w-4 h-4 text-amber-500" />
+                            <span>Highest: {highestScore} / {quiz.questions.length}</span>
+                        </div>
+                        <div className="px-3 py-1.5 bg-white dark:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
+                            <History className="w-4 h-4 text-indigo-500" />
+                            <span>Attempts: {attempts.length}</span>
+                        </div>
+                    </div>
+
                     {canRetake && (
                          <button 
                             onClick={onRetake}
-                            className="mt-4 flex items-center gap-2 px-4 py-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-lg font-bold hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition-colors"
+                            className="mt-6 flex items-center gap-2 px-4 py-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-lg font-bold hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition-colors"
                         >
                             <RotateCcw className="w-4 h-4" /> Retake Quiz
                         </button>
@@ -524,9 +557,9 @@ const QuizResult = ({
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="text-right">
-                        <p className="text-sm text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wide">Score</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wide">Latest Score</p>
                         <p className={`text-3xl font-extrabold ${percentage >= 70 ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                            {attempt.score} / {attempt.totalQuestions}
+                            {latestAttempt.score} / {latestAttempt.totalQuestions}
                         </p>
                     </div>
                     <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-lg ${percentage >= 70 ? 'bg-green-500' : 'bg-amber-500'}`}>
@@ -538,7 +571,7 @@ const QuizResult = ({
             {showAnswers ? (
                 <div className="space-y-6">
                     {quiz.questions.map((q, qIndex) => {
-                        const studentAnswer = attempt.answers[q.id];
+                        const studentAnswer = latestAttempt.answers[q.id];
                         let isCorrect = false;
                         
                         if (q.type === 'multiple-choice') isCorrect = studentAnswer === q.correctAnswerIndex;
@@ -629,9 +662,8 @@ export default function CourseViewerPage() {
 
     // -- Quiz Flow States --
     const [quizState, setQuizState] = useState<'start' | 'taking' | 'result'>('start');
-    const [attemptsList, setAttemptsList] = useState<QuizAttempt[]>([]);
-    const [latestAttempt, setLatestAttempt] = useState<QuizAttempt | null>(null);
-    const [canRetake, setCanRetake] = useState(false);
+    const [quizAttempts, setQuizAttempts] = useState<QuizAttempt[]>([]);
+    const [retakesGranted, setRetakesGranted] = useState(0);
 
     const checkQuizStatus = useCallback(async (moduleId: string, lessonId: string, quizId: string) => {
         if (!user) return;
@@ -641,30 +673,28 @@ export default function CourseViewerPage() {
         const q = query(attemptsRef, where('studentId', '==', user.uid), orderBy('submittedAt', 'desc'));
         const querySnapshot = await getDocs(q);
         
-        const attempts = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as QuizAttempt[];
-        setAttemptsList(attempts);
+        const attemptsList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as QuizAttempt[];
+        setQuizAttempts(attemptsList);
         
-        // 2. Determine state
-        if (attempts.length > 0) {
-            setLatestAttempt(attempts[0]);
-            setQuizState('result');
-        } else {
-            setLatestAttempt(null);
-            setQuizState('start');
-        }
-
-        // 3. Check if a retake was explicitly granted
+        // 2. Fetch reattempt grant count
         try {
             const reattemptDocRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quizId, 'reattempts', user.uid);
             const reattemptDocSnap = await getDoc(reattemptDocRef);
             if (reattemptDocSnap.exists()) {
-                setCanRetake(true);
+                setRetakesGranted((reattemptDocSnap.data() as ReattemptGrant).count || 0);
             } else {
-                setCanRetake(false);
+                setRetakesGranted(0);
             }
         } catch (e) {
             console.error("Error checking reattempts:", e);
-            setCanRetake(false);
+            setRetakesGranted(0);
+        }
+
+        // 3. Determine state
+        if (attemptsList.length > 0) {
+            setQuizState('result');
+        } else {
+            setQuizState('start');
         }
 
     }, [courseId, user]);
@@ -693,7 +723,7 @@ export default function CourseViewerPage() {
 
                     const lessonsList: Lesson[] = await Promise.all(
                         lessonsSnapshot.docs.map(async (lessonDoc) => {
-                            const lessonData = lessonDoc.data() as Omit<Lesson, 'id' | 'qanda' | 'quiz' | 'quizAttempt'>;
+                            const lessonData = lessonDoc.data() as Omit<Lesson, 'id' | 'qanda' | 'quiz'>;
                             const qandaSnapshot = await getDocs(query(collection(db, 'courses', courseId, 'modules', moduleDoc.id, 'lessons', lessonDoc.id, 'qanda'), orderBy('askedAt')));
                             const qandaList = qandaSnapshot.docs.map((qDoc) => ({ id: qDoc.id, ...qDoc.data() })) as QandA[];
 
@@ -766,6 +796,7 @@ export default function CourseViewerPage() {
         const fullLesson = module?.lessons.find(l => l.id === lesson.id) || lesson;
         setSelectedLesson(fullLesson);
         setCurrentModuleId(moduleId);
+        setQuizState('start');
         
         if (fullLesson.quiz) {
              await checkQuizStatus(moduleId, fullLesson.id, fullLesson.quiz.id);
@@ -788,24 +819,14 @@ export default function CourseViewerPage() {
         if (!user || !selectedLesson?.quiz || !currentModuleId) return;
         
         if (confirm("Are you sure you want to use your retake?")) {
-            try {
-                // Delete the re-attempt grant document to consume it
-                const reattemptDocRef = doc(db, 'courses', courseId, 'modules', currentModuleId, 'lessons', selectedLesson.id, 'quizzes', selectedLesson.quiz.id, 'reattempts', user.uid);
-                await deleteDoc(reattemptDocRef);
-                
-                setCanRetake(false);
-                setQuizState('taking'); // Start the quiz again
-            } catch (err) {
-                console.error("Error consuming retake:", err);
-                alert("Failed to start retake. Please try again.");
-            }
+            setQuizState('taking');
         }
     };
 
     const handleMarkComplete = async () => {
         if (!user || !selectedLesson) return;
-        // Logic: If there is a quiz, and user hasn't passed/attempted it (no latestAttempt), warn them.
-        const isQuizPresentAndIncomplete = selectedLesson.quiz && !latestAttempt;
+        // Logic: If there is a quiz, and user hasn't passed/attempted it (no attempts), warn them.
+        const isQuizPresentAndIncomplete = selectedLesson.quiz && quizAttempts.length === 0;
         
         if (isQuizPresentAndIncomplete) { alert("Please complete the quiz before marking this lesson as complete."); return; }
         try {
@@ -823,7 +844,9 @@ export default function CourseViewerPage() {
 
     const isCurrentLessonComplete = enrollmentData?.completedItems?.includes(selectedLesson?.id || '') ?? false;
     // Ready to complete if: No quiz OR quiz exists and has been attempted
-    const isReadyToComplete = selectedLesson && (!selectedLesson.quiz || latestAttempt) && !isCurrentLessonComplete;
+    const isReadyToComplete = selectedLesson && (!selectedLesson.quiz || quizAttempts.length > 0) && !isCurrentLessonComplete;
+    // Calculation: 1 base attempt + granted retakes > current attempts
+    const canRetakeQuiz = quizAttempts.length < (1 + retakesGranted);
 
     useEffect(() => {
         if (authLoading) return;
@@ -985,7 +1008,8 @@ export default function CourseViewerPage() {
                                         <QuizStartScreen 
                                             quiz={selectedLesson.quiz} 
                                             onStart={() => setQuizState('taking')} 
-                                            attemptCount={attemptsList.length}
+                                            attempts={quizAttempts}
+                                            retakesGranted={retakesGranted}
                                             isLocked={selectedLesson.quiz.settings.isLocked}
                                         />
                                     )}
@@ -1000,11 +1024,11 @@ export default function CourseViewerPage() {
                                         />
                                     )}
 
-                                    {quizState === 'result' && latestAttempt && (
+                                    {quizState === 'result' && quizAttempts.length > 0 && (
                                         <QuizResult 
-                                            attempt={latestAttempt} 
+                                            attempts={quizAttempts} 
                                             quiz={selectedLesson.quiz} 
-                                            canRetake={canRetake}
+                                            canRetake={canRetakeQuiz}
                                             onRetake={handleRetakeQuiz}
                                         />
                                     )}
@@ -1021,7 +1045,7 @@ export default function CourseViewerPage() {
                                             </p>
                                         ) : (
                                             <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">
-                                                {selectedLesson.quiz && !latestAttempt ? 'Complete the quiz to finish.' : 'Ready to move on?'}
+                                                {selectedLesson.quiz && quizAttempts.length === 0 ? 'Complete the quiz to finish.' : 'Ready to move on?'}
                                             </p>
                                         )}
                                     </div>

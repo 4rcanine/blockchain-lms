@@ -44,7 +44,9 @@ import {
     Eye,
     EyeOff,
     RefreshCw,
-    Settings
+    Settings,
+    ChevronDown,
+    ChevronUp
 } from 'lucide-react';
 
 /* ------------------------------- Utility -------------------------------- */
@@ -121,6 +123,17 @@ interface Module {
     title: string;
     lessons: Lesson[];
 }
+
+// --- NEW TYPES FROM MERGE ---
+interface QuizAttempt { 
+    id: string; 
+    studentId: string; 
+    studentEmail: string; 
+    score: number; 
+    totalQuestions: number; 
+    submittedAt: any; 
+}
+interface ReattemptGrant { count: number; }
 
 /* ---------------------------- LessonForm ----------------------------- */
 const LessonForm = ({
@@ -356,6 +369,74 @@ const AnswerQuestionForm = ({
     );
 };
 
+/* ------------------------- StudentAttemptRow Component -------------------------- */
+const StudentAttemptRow = ({ 
+    student, 
+    quiz, 
+    courseId, 
+    moduleId, 
+    lessonId, 
+    onUpdate 
+}: { 
+    student: any;
+    quiz: Quiz;
+    courseId: string;
+    moduleId: string;
+    lessonId: string;
+    onUpdate: () => void;
+}) => {
+    const [retakeCount, setRetakeCount] = useState(1);
+    const [isSaving, setIsSaving] = useState(false);
+
+    const grantRetake = async () => {
+        setIsSaving(true);
+        const reattemptRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'reattempts', student.studentId);
+        try {
+            // Grant additional retakes on top of what they might already have
+            await setDoc(reattemptRef, { count: (student.retakesGranted || 0) + retakeCount });
+            onUpdate(); // Refresh parent to show new count
+            setRetakeCount(1);
+        } catch (error) { 
+            console.error("Failed to grant retake:", error); 
+        } finally { 
+            setIsSaving(false); 
+        }
+    };
+    
+    return (
+        <tr className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+            <td className="p-3 text-sm text-gray-700 dark:text-gray-300 font-medium">
+                {student.studentEmail || <span className="text-gray-400 italic">No Email ({student.studentId.substring(0,6)}...)</span>}
+            </td>
+            <td className="p-3 text-sm text-center text-gray-600 dark:text-gray-400">
+                {student.attempts.length}
+            </td>
+            <td className="p-3 text-sm text-center font-semibold text-indigo-600 dark:text-indigo-400">
+                {student.highestScore} / {quiz.questions.length}
+            </td>
+            <td className="p-3 text-sm text-center text-gray-600 dark:text-gray-400">
+                {student.retakesGranted || 0}
+            </td>
+            <td className="p-3 flex items-center justify-end gap-2">
+                <input 
+                    type="number" 
+                    value={retakeCount} 
+                    min={1}
+                    onChange={e => setRetakeCount(Math.max(1, parseInt(e.target.value)))} 
+                    className="w-16 p-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-1 focus:ring-indigo-500 outline-none" 
+                />
+                <button 
+                    onClick={grantRetake} 
+                    disabled={isSaving}
+                    className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors whitespace-nowrap"
+                >
+                    {isSaving ? 'Saving...' : '+ Grant'}
+                </button>
+            </td>
+        </tr>
+    );
+};
+
 /* ------------------------- QuizManager Component -------------------------- */
 const QuizManager = ({ 
     quiz, 
@@ -375,6 +456,49 @@ const QuizManager = ({
     onDelete: () => void;
 }) => {
     const [loading, setLoading] = useState(false);
+    const [studentData, setStudentData] = useState<any[]>([]);
+    const [isTableExpanded, setIsTableExpanded] = useState(false);
+
+    useEffect(() => {
+        // Fetch all attempts and re-attempt grants for this quiz
+        const fetchAttempts = async () => {
+            try {
+                const attemptsRef = collection(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'quizAttempts');
+                const attemptsSnap = await getDocs(attemptsRef);
+                const attempts = attemptsSnap.docs.map(d => ({...d.data()})) as QuizAttempt[];
+
+                const reattemptsRef = collection(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'reattempts');
+                const reattemptsSnap = await getDocs(reattemptsRef);
+                const reattempts = new Map(reattemptsSnap.docs.map(d => [d.id, (d.data() as ReattemptGrant).count]));
+
+                // Group attempts by student
+                const groupedByStudent = attempts.reduce((acc, attempt) => {
+                    if (!acc[attempt.studentId]) {
+                        acc[attempt.studentId] = { studentId: attempt.studentId, studentEmail: attempt.studentEmail, attempts: [], highestScore: 0 };
+                    }
+                    acc[attempt.studentId].attempts.push(attempt);
+                    if (attempt.score > acc[attempt.studentId].highestScore) {
+                        acc[attempt.studentId].highestScore = attempt.score;
+                    }
+                    return acc;
+                }, {} as any);
+
+                // Add re-take info and turn into array
+                const studentArray = Object.values(groupedByStudent).map((student: any) => {
+                    student.retakesGranted = reattempts.get(student.studentId) || 0;
+                    return student;
+                });
+
+                setStudentData(studentArray);
+            } catch (err) {
+                console.error("Error fetching quiz data:", err);
+            }
+        };
+
+        if (isTableExpanded) {
+            fetchAttempts();
+        }
+    }, [quiz, isTableExpanded, courseId, moduleId, lessonId]);
 
     const toggleLock = async () => {
         setLoading(true);
@@ -406,27 +530,9 @@ const QuizManager = ({
         }
     };
 
-    // Helper to grant a re-attempt manually (simple version)
-    const grantReattempt = async () => {
-        const studentId = window.prompt("Enter the Student UID to grant a re-attempt:");
-        if(!studentId) return;
-
-        try {
-            // Write to the 'reattempts' subcollection as per Firestore rules
-            const reattemptRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'reattempts', studentId);
-            await setDoc(reattemptRef, {
-                grantedAt: serverTimestamp(),
-                grantedBy: "instructor" 
-            });
-            alert("Re-attempt granted successfully.");
-        } catch (error) {
-            console.error("Error granting re-attempt:", error);
-            alert("Failed to grant re-attempt.");
-        }
-    };
-
     return (
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 mt-2">
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 mt-2 shadow-sm">
+            {/* Top Bar: Info & Controls */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div className="flex items-center gap-3">
                     <div className="p-2 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-lg">
@@ -465,14 +571,6 @@ const QuizManager = ({
                         {quiz.settings.showAnswers ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                     </button>
 
-                    <button 
-                        onClick={grantReattempt}
-                        className="p-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                        title="Grant Re-attempt to Student"
-                    >
-                        <RefreshCw className="w-4 h-4" />
-                    </button>
-
                     <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
 
                     <button onClick={onEdit} className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
@@ -484,16 +582,72 @@ const QuizManager = ({
                 </div>
             </div>
             
-            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex gap-4 text-xs">
-                <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
-                    <Settings className="w-3.5 h-3.5" />
-                    <span>Status: {quiz.settings.isLocked ? 'Locked (Students cannot access)' : 'Active'}</span>
+            {/* Status Footer */}
+            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex flex-wrap justify-between items-center gap-4 text-xs">
+                <div className="flex gap-4">
+                    <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
+                        <Settings className="w-3.5 h-3.5" />
+                        <span>Status: {quiz.settings.isLocked ? 'Locked' : 'Active'}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
+                        {quiz.settings.showAnswers ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                        <span>Results: {quiz.settings.showAnswers ? 'Answers Shown' : 'Answers Hidden'}</span>
+                    </div>
                 </div>
-                <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
-                    {quiz.settings.showAnswers ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                    <span>Results: {quiz.settings.showAnswers ? 'Answers shown after submission' : 'Answers hidden'}</span>
-                </div>
+
+                {/* Toggle Student Progress Table */}
+                <button 
+                    onClick={() => setIsTableExpanded(!isTableExpanded)}
+                    className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-medium hover:underline"
+                >
+                    {isTableExpanded ? 'Hide Student Progress' : 'View Student Progress'}
+                    {isTableExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
             </div>
+
+            {/* Student Progress Table */}
+            {isTableExpanded && (
+                <div className="mt-4 border-t border-gray-100 dark:border-gray-700 pt-4 animate-in fade-in slide-in-from-top-1">
+                    <h4 className="font-semibold text-sm text-gray-800 dark:text-gray-200 mb-3">Student Attempts</h4>
+                    {studentData.length === 0 ? (
+                        <div className="text-center py-4 text-sm text-gray-500 italic bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+                            No students have attempted this quiz yet.
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
+                                        <th className="p-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Student</th>
+                                        <th className="p-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-center">Attempts</th>
+                                        <th className="p-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-center">Highest Score</th>
+                                        <th className="p-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-center">Retakes Granted</th>
+                                        <th className="p-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {studentData.map(s => (
+                                        <StudentAttemptRow 
+                                            key={s.studentId} 
+                                            student={s} 
+                                            quiz={quiz} 
+                                            courseId={courseId}
+                                            moduleId={moduleId}
+                                            lessonId={lessonId}
+                                            onUpdate={() => {
+                                                // Re-trigger fetch by toggling state or calling a refresher function
+                                                // For simplicity, we just trigger a re-render which calls useEffect
+                                                setIsTableExpanded(false);
+                                                setTimeout(() => setIsTableExpanded(true), 50);
+                                            }}
+                                        />
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 };

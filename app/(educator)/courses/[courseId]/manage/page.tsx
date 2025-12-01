@@ -390,11 +390,22 @@ const StudentAttemptRow = ({
     const [retakeCount, setRetakeCount] = useState(1);
     const [isSaving, setIsSaving] = useState(false);
 
+    // --- FIX: LOGIC UPDATE ---
+    const baseAttempts = quiz.settings.maxAttempts || 1;
+    const grantedRetakes = student.retakesGranted || 0;
+    const totalAllowed = baseAttempts + grantedRetakes;
+
+    // FIX: Since we overwrite the document, we must read the 'attemptCount' field.
+    // If 'attemptCount' doesn't exist (legacy data), fallback to array length.
+    const latestAttempt = student.attempts[0]; 
+    const attemptsUsed = latestAttempt?.attemptCount || student.attempts.length;
+
     const grantRetake = async () => {
         setIsSaving(true);
         const reattemptRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'reattempts', student.studentId);
         try {
-            await setDoc(reattemptRef, { count: (student.retakesGranted || 0) + retakeCount });
+            // Grant additional retakes on top of what they might already have
+            await setDoc(reattemptRef, { count: grantedRetakes + retakeCount });
             onUpdate(); 
             setRetakeCount(1);
         } catch (error) { 
@@ -409,15 +420,25 @@ const StudentAttemptRow = ({
             <td className="p-3 text-sm text-gray-700 dark:text-gray-300 font-medium">
                 {student.studentEmail || <span className="text-gray-400 italic">No Email ({student.studentId.substring(0,6)}...)</span>}
             </td>
+            
+            {/* Attempt Counter */}
             <td className="p-3 text-sm text-center text-gray-600 dark:text-gray-400">
-                {student.attempts.length}
+                <span className={`font-bold ${attemptsUsed >= totalAllowed ? 'text-red-500' : 'text-green-600'}`}>
+                    {attemptsUsed}
+                </span>
+                <span className="text-gray-400 mx-1">/</span>
+                <span className="text-gray-900 dark:text-white font-medium">{totalAllowed}</span>
             </td>
+
             <td className="p-3 text-sm text-center font-semibold text-indigo-600 dark:text-indigo-400">
                 {student.highestScore} / {quiz.questions.length}
             </td>
+            
+            {/* Granted Count */}
             <td className="p-3 text-sm text-center text-gray-600 dark:text-gray-400">
-                {student.retakesGranted || 0}
+                {grantedRetakes > 0 ? `+${grantedRetakes}` : '-'}
             </td>
+
             <td className="p-3 flex items-center justify-end gap-2">
                 <input 
                     type="number" 

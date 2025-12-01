@@ -15,6 +15,8 @@ import {
     arrayUnion,
     writeBatch,
     Timestamp,
+    where,
+    deleteDoc
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
@@ -28,7 +30,10 @@ import {
     Video, 
     Code, 
     HelpCircle,
-    Menu
+    Menu,
+    Play,
+    RotateCcw,
+    Lock
 } from 'lucide-react';
 
 // --- Type Definitions ---
@@ -42,7 +47,7 @@ interface QandA {
     askedAt: Timestamp | Date;
 }
 
-// -- NEW QUIZ TYPE DEFINITIONS --
+// -- QUIZ TYPE DEFINITIONS --
 type QuestionType = 'multiple-choice' | 'identification' | 'true-or-false';
 
 interface BaseQuestion {
@@ -69,15 +74,22 @@ interface TrueOrFalseQuestion extends BaseQuestion {
 
 type Question = MultipleChoiceQuestion | IdentificationQuestion | TrueOrFalseQuestion;
 
+interface QuizSettings {
+    showAnswers: boolean;
+    isLocked: boolean;
+}
+
 interface Quiz {
     id: string;
     title: string;
     questions: Question[];
     dueDate?: any;
+    settings: QuizSettings;
     createdAt?: any;
 }
 
 interface QuizAttempt {
+    id?: string;
     studentId: string;
     score: number;
     totalQuestions: number;
@@ -92,7 +104,7 @@ interface Lesson {
     content: string;
     qanda?: QandA[];
     quiz?: Quiz;
-    quizAttempt?: QuizAttempt | null;
+    // We handle attempts locally in component state mostly now, but keeping for reference if needed
     sandboxUrl?: string;
     videoUrl?: string; 
 }
@@ -248,6 +260,48 @@ const ClockIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+// --- NEW QuizStartScreen Component ---
+const QuizStartScreen = ({ 
+    quiz, 
+    onStart, 
+    attemptCount, 
+    isLocked 
+}: { 
+    quiz: Quiz; 
+    onStart: () => void; 
+    attemptCount: number;
+    isLocked: boolean;
+}) => (
+    <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700 text-center">
+        <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
+            <HelpCircle className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
+        </div>
+        <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">{quiz.title}</h2>
+        <p className="text-gray-600 dark:text-gray-400 mb-2 max-w-lg mx-auto">
+            This quiz contains {quiz.questions.length} questions.
+        </p>
+        <p className="text-sm text-gray-500 dark:text-gray-500 mb-8">
+            {attemptCount > 0 ? `You have attempted this quiz ${attemptCount} time(s).` : 'You have not attempted this quiz yet.'}
+        </p>
+
+        {isLocked ? (
+             <div className="inline-flex items-center gap-2 px-6 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold rounded-xl border border-red-100 dark:border-red-900">
+                <Lock className="w-5 h-5" />
+                <span>Quiz is Locked by Instructor</span>
+            </div>
+        ) : (
+            <button 
+                onClick={onStart} 
+                className="inline-flex items-center gap-2 px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg hover:shadow-indigo-500/25 transition-all transform hover:-translate-y-0.5 active:translate-y-0"
+            >
+                <Play className="w-5 h-5" />
+                {attemptCount > 0 ? 'Retake Quiz' : 'Start Quiz'}
+            </button>
+        )}
+    </div>
+);
+
+
 // --- UPDATED QuizTaker Component ---
 const QuizTaker = ({
     quiz,
@@ -260,7 +314,7 @@ const QuizTaker = ({
     courseId: string;
     moduleId: string;
     lessonId: string;
-    onQuizCompleted: (attempt: QuizAttempt) => void;
+    onQuizCompleted: () => void;
 }) => {
     const { user } = useAuth();
     const [selectedAnswers, setSelectedAnswers] = useState<{ [key: string]: number | string | boolean }>({});
@@ -311,12 +365,18 @@ const QuizTaker = ({
 
         try {
             const batch = writeBatch(db);
-            const attemptDocRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'quizAttempts', user.uid);
-            batch.set(attemptDocRef, attemptData);
+            // 1. Create a NEW attempt document (using auto-generated ID or timestamp-based ID to allow history)
+            const attemptsCollectionRef = collection(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'quizAttempts');
+            const newAttemptDocRef = doc(attemptsCollectionRef); // Auto-ID
+            batch.set(newAttemptDocRef, attemptData);
+
+            // 2. Mark lesson as completed for student
             const enrollmentDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
             batch.update(enrollmentDocRef, { completedItems: arrayUnion(lessonId) });
+            
             await batch.commit();
-            onQuizCompleted({ ...attemptData, submittedAt: new Date() });
+            
+            onQuizCompleted();
         } catch (err) {
             console.error('Failed to submit quiz:', err);
             setError('Failed to submit your quiz. Please try again.');
@@ -431,8 +491,19 @@ const QuizTaker = ({
 };
 
 // --- UPDATED QuizResult Component ---
-const QuizResult = ({ attempt, quiz }: { attempt: QuizAttempt; quiz: Quiz }) => {
+const QuizResult = ({ 
+    attempt, 
+    quiz, 
+    canRetake, 
+    onRetake 
+}: { 
+    attempt: QuizAttempt; 
+    quiz: Quiz; 
+    canRetake: boolean;
+    onRetake: () => void;
+}) => {
     const percentage = Math.round((attempt.score / attempt.totalQuestions) * 100);
+    const showAnswers = quiz.settings?.showAnswers ?? true; // Default to true for backward compatibility
     
     return (
         <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700">
@@ -440,6 +511,16 @@ const QuizResult = ({ attempt, quiz }: { attempt: QuizAttempt; quiz: Quiz }) => 
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Quiz Results</h2>
                     <p className="text-gray-500 dark:text-gray-400 text-sm">{quiz.title}</p>
+                    
+                    {/* Retake Button */}
+                    {canRetake && (
+                         <button 
+                            onClick={onRetake}
+                            className="mt-4 flex items-center gap-2 px-4 py-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-lg font-bold hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition-colors"
+                        >
+                            <RotateCcw className="w-4 h-4" /> Retake Quiz
+                        </button>
+                    )}
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="text-right">
@@ -454,63 +535,71 @@ const QuizResult = ({ attempt, quiz }: { attempt: QuizAttempt; quiz: Quiz }) => 
                 </div>
             </div>
 
-            <div className="space-y-6">
-                {quiz.questions.map((q, qIndex) => {
-                    const studentAnswer = attempt.answers[q.id];
-                    let isCorrect = false;
-                    
-                    if (q.type === 'multiple-choice') isCorrect = studentAnswer === q.correctAnswerIndex;
-                    else if (q.type === 'identification') isCorrect = typeof studentAnswer === 'string' && studentAnswer.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase();
-                    else if (q.type === 'true-or-false') isCorrect = studentAnswer === q.correctAnswer;
+            {showAnswers ? (
+                <div className="space-y-6">
+                    {quiz.questions.map((q, qIndex) => {
+                        const studentAnswer = attempt.answers[q.id];
+                        let isCorrect = false;
+                        
+                        if (q.type === 'multiple-choice') isCorrect = studentAnswer === q.correctAnswerIndex;
+                        else if (q.type === 'identification') isCorrect = typeof studentAnswer === 'string' && studentAnswer.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase();
+                        else if (q.type === 'true-or-false') isCorrect = studentAnswer === q.correctAnswer;
 
-                    return (
-                        <div key={q.id || qIndex} className={`p-6 border rounded-xl bg-white dark:bg-gray-800 shadow-sm ${isCorrect ? 'border-green-200 dark:border-green-900/50' : 'border-red-200 dark:border-red-900/50'}`}>
-                            <div className="flex gap-3 mb-3">
-                                <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold ${isCorrect ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
-                                    {isCorrect ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                                </div>
-                                <p className="font-medium text-lg text-gray-900 dark:text-white">{qIndex + 1}. {q.questionText}</p>
-                            </div>
-
-                            {q.type === 'multiple-choice' && (
-                                <div className="ml-9 space-y-2">
-                                    {q.options.map((option, oIndex) => {
-                                        const isSelected = studentAnswer === oIndex;
-                                        const isThisCorrect = q.correctAnswerIndex === oIndex;
-                                        let styleClass = 'bg-gray-50 dark:bg-gray-700/30 border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-400';
-                                        
-                                        if (isThisCorrect) styleClass = 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300 font-medium ring-1 ring-green-200 dark:ring-green-800';
-                                        else if (isSelected && !isThisCorrect) styleClass = 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 font-medium';
-
-                                        return (
-                                            <div key={oIndex} className={`p-3 border rounded-lg text-sm flex justify-between items-center ${styleClass}`}>
-                                                <span>{option}</span>
-                                                {isThisCorrect && <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Correct</span>}
-                                                {isSelected && !isThisCorrect && <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Your Answer</span>}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-
-                            {(q.type === 'identification' || q.type === 'true-or-false') && (
-                                <div className="ml-9 mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className={`p-3 rounded-lg border ${isCorrect ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`}>
-                                        <span className="text-xs font-bold uppercase tracking-wider opacity-70 block mb-1">Your Answer</span>
-                                        <p className="font-medium">{String(studentAnswer)}</p>
+                        return (
+                            <div key={q.id || qIndex} className={`p-6 border rounded-xl bg-white dark:bg-gray-800 shadow-sm ${isCorrect ? 'border-green-200 dark:border-green-900/50' : 'border-red-200 dark:border-red-900/50'}`}>
+                                <div className="flex gap-3 mb-3">
+                                    <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold ${isCorrect ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                                        {isCorrect ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
                                     </div>
-                                    {!isCorrect && (
-                                        <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/30 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300">
-                                            <span className="text-xs font-bold uppercase tracking-wider opacity-70 block mb-1">Correct Answer</span>
-                                            <p className="font-medium">{String(q.correctAnswer)}</p>
-                                        </div>
-                                    )}
+                                    <p className="font-medium text-lg text-gray-900 dark:text-white">{qIndex + 1}. {q.questionText}</p>
                                 </div>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
+
+                                {q.type === 'multiple-choice' && (
+                                    <div className="ml-9 space-y-2">
+                                        {q.options.map((option, oIndex) => {
+                                            const isSelected = studentAnswer === oIndex;
+                                            const isThisCorrect = q.correctAnswerIndex === oIndex;
+                                            let styleClass = 'bg-gray-50 dark:bg-gray-700/30 border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-400';
+                                            
+                                            if (isThisCorrect) styleClass = 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300 font-medium ring-1 ring-green-200 dark:ring-green-800';
+                                            else if (isSelected && !isThisCorrect) styleClass = 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 font-medium';
+
+                                            return (
+                                                <div key={oIndex} className={`p-3 border rounded-lg text-sm flex justify-between items-center ${styleClass}`}>
+                                                    <span>{option}</span>
+                                                    {isThisCorrect && <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Correct</span>}
+                                                    {isSelected && !isThisCorrect && <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Your Answer</span>}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {(q.type === 'identification' || q.type === 'true-or-false') && (
+                                    <div className="ml-9 mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className={`p-3 rounded-lg border ${isCorrect ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`}>
+                                            <span className="text-xs font-bold uppercase tracking-wider opacity-70 block mb-1">Your Answer</span>
+                                            <p className="font-medium">{String(studentAnswer)}</p>
+                                        </div>
+                                        {!isCorrect && (
+                                            <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/30 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300">
+                                                <span className="text-xs font-bold uppercase tracking-wider opacity-70 block mb-1">Correct Answer</span>
+                                                <p className="font-medium">{String(q.correctAnswer)}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            ) : (
+                <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-xl border border-dashed border-gray-300 dark:border-gray-600 text-center">
+                    <p className="text-gray-500 dark:text-gray-400">
+                        The instructor has chosen to hide the correct answers for this quiz.
+                    </p>
+                </div>
+            )}
         </div>
     );
 };
@@ -533,21 +622,51 @@ export default function CourseViewerPage() {
     const [modules, setModules] = useState<Module[]>([]);
     const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
     const [currentModuleId, setCurrentModuleId] = useState<string | null>(null);
-    const [quizAttempt, setQuizAttempt] = useState<QuizAttempt | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [enrollmentData, setEnrollmentData] = useState<EnrollmentData | null>(null);
     const [isInstructor, setIsInstructor] = useState(false);
 
-    const fetchQuizAttempt = useCallback(async (moduleId: string, lessonId: string, quizId?: string) => {
-        if (!user || !quizId) return;
-        const attemptDocRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quizId, 'quizAttempts', user.uid);
-        const attemptDocSnap = await getDoc(attemptDocRef);
-        if (attemptDocSnap.exists()) {
-            setQuizAttempt(attemptDocSnap.data() as QuizAttempt);
+    // -- Quiz Flow States --
+    const [quizState, setQuizState] = useState<'start' | 'taking' | 'result'>('start');
+    const [attemptsList, setAttemptsList] = useState<QuizAttempt[]>([]);
+    const [latestAttempt, setLatestAttempt] = useState<QuizAttempt | null>(null);
+    const [canRetake, setCanRetake] = useState(false);
+
+    const checkQuizStatus = useCallback(async (moduleId: string, lessonId: string, quizId: string) => {
+        if (!user) return;
+        
+        // 1. Fetch ALL attempts (ordered by submittedAt desc)
+        const attemptsRef = collection(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quizId, 'quizAttempts');
+        const q = query(attemptsRef, where('studentId', '==', user.uid), orderBy('submittedAt', 'desc'));
+        const querySnapshot = await getDocs(q);
+        
+        const attempts = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as QuizAttempt[];
+        setAttemptsList(attempts);
+        
+        // 2. Determine state
+        if (attempts.length > 0) {
+            setLatestAttempt(attempts[0]);
+            setQuizState('result');
         } else {
-            setQuizAttempt(null);
+            setLatestAttempt(null);
+            setQuizState('start');
         }
+
+        // 3. Check if a retake was explicitly granted
+        try {
+            const reattemptDocRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quizId, 'reattempts', user.uid);
+            const reattemptDocSnap = await getDoc(reattemptDocRef);
+            if (reattemptDocSnap.exists()) {
+                setCanRetake(true);
+            } else {
+                setCanRetake(false);
+            }
+        } catch (e) {
+            console.error("Error checking reattempts:", e);
+            setCanRetake(false);
+        }
+
     }, [courseId, user]);
 
     const fetchData = useCallback(async () => {
@@ -593,6 +712,7 @@ export default function CourseViewerPage() {
                                         title: qData.title,
                                         questions: qData.questions || [],
                                         dueDate: qData.dueDate,
+                                        settings: qData.settings || { showAnswers: true, isLocked: false },
                                         createdAt: qData.createdAt,
                                     } as Quiz);
                                 }
@@ -607,13 +727,6 @@ export default function CourseViewerPage() {
                                 selectedQuiz = quizCandidates[0];
                             }
 
-                            let attempt: QuizAttempt | null = null;
-                            if (user && selectedQuiz) {
-                                const attemptRef = doc(db, 'courses', courseId, 'modules', moduleDoc.id, 'lessons', lessonDoc.id, 'quizzes', selectedQuiz.id, 'quizAttempts', user.uid);
-                                const attemptSnap = await getDoc(attemptRef);
-                                if (attemptSnap.exists()) attempt = attemptSnap.data() as QuizAttempt;
-                            }
-
                             return {
                                 id: lessonDoc.id,
                                 title: lessonData.title,
@@ -622,16 +735,9 @@ export default function CourseViewerPage() {
                                 videoUrl: lessonData.videoUrl,
                                 qanda: qandaList,
                                 quiz: selectedQuiz,
-                                quizAttempt: attempt,
                             } as Lesson;
                         })
                     );
-
-                    if (instructorIds.includes(user.uid)) {
-                        try {
-                            await updateDoc(doc(db, 'courses', courseId, 'modules', moduleDoc.id), { lessons: lessonsList.map((l) => l.id) });
-                        } catch (err) { console.warn('Non-fatal update error:', err); }
-                    }
 
                     return { id: moduleDoc.id, ...moduleData, lessons: lessonsList } as Module;
                 })
@@ -643,7 +749,9 @@ export default function CourseViewerPage() {
                 const firstLesson = modulesList[0].lessons[0];
                 setSelectedLesson(firstLesson);
                 setCurrentModuleId(modulesList[0].id);
-                if (firstLesson.quiz) await fetchQuizAttempt(modulesList[0].id, firstLesson.id, firstLesson.quiz.id);
+                if (firstLesson.quiz) {
+                     await checkQuizStatus(modulesList[0].id, firstLesson.id, firstLesson.quiz.id);
+                }
             }
         } catch (err: any) {
             console.error('Error fetching data:', err);
@@ -651,31 +759,54 @@ export default function CourseViewerPage() {
         } finally {
             setLoading(false);
         }
-    }, [courseId, user, selectedLesson, fetchQuizAttempt]);
+    }, [courseId, user, selectedLesson, checkQuizStatus]);
 
     const handleLessonSelect = async (lesson: Lesson, moduleId: string) => {
         const module = modules.find(m => m.id === moduleId);
         const fullLesson = module?.lessons.find(l => l.id === lesson.id) || lesson;
         setSelectedLesson(fullLesson);
         setCurrentModuleId(moduleId);
-        setQuizAttempt(null);
-        if (fullLesson.quiz && user) await fetchQuizAttempt(moduleId, fullLesson.id, fullLesson.quiz.id);
+        
+        if (fullLesson.quiz) {
+             await checkQuizStatus(moduleId, fullLesson.id, fullLesson.quiz.id);
+        }
     };
 
-    const handleQuizCompleted = (attempt: QuizAttempt) => {
-        setQuizAttempt(attempt);
-        if (selectedLesson) {
-            setEnrollmentData((prev) => {
-                if (!prev) return null;
-                return { ...prev, completedItems: Array.from(new Set([...(prev.completedItems || []), selectedLesson.id])) } as EnrollmentData;
-            });
-            setModules((prevModules) => prevModules.map((mod) => mod.id === currentModuleId ? { ...mod, lessons: mod.lessons.map((l) => l.id === selectedLesson.id ? { ...l, quizAttempt: attempt } : l) } : mod));
+    const handleQuizCompleted = async () => {
+        if (selectedLesson?.quiz && currentModuleId) {
+            await checkQuizStatus(currentModuleId, selectedLesson.id, selectedLesson.quiz.id);
+            // Refresh enrollment data to show checkmark
+             if (user) {
+                const enrollmentRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
+                const snap = await getDoc(enrollmentRef);
+                if(snap.exists()) setEnrollmentData(snap.data() as EnrollmentData);
+             }
+        }
+    };
+
+    const handleRetakeQuiz = async () => {
+        if (!user || !selectedLesson?.quiz || !currentModuleId) return;
+        
+        if (confirm("Are you sure you want to use your retake?")) {
+            try {
+                // Delete the re-attempt grant document to consume it
+                const reattemptDocRef = doc(db, 'courses', courseId, 'modules', currentModuleId, 'lessons', selectedLesson.id, 'quizzes', selectedLesson.quiz.id, 'reattempts', user.uid);
+                await deleteDoc(reattemptDocRef);
+                
+                setCanRetake(false);
+                setQuizState('taking'); // Start the quiz again
+            } catch (err) {
+                console.error("Error consuming retake:", err);
+                alert("Failed to start retake. Please try again.");
+            }
         }
     };
 
     const handleMarkComplete = async () => {
         if (!user || !selectedLesson) return;
-        const isQuizPresentAndIncomplete = selectedLesson.quiz && !quizAttempt;
+        // Logic: If there is a quiz, and user hasn't passed/attempted it (no latestAttempt), warn them.
+        const isQuizPresentAndIncomplete = selectedLesson.quiz && !latestAttempt;
+        
         if (isQuizPresentAndIncomplete) { alert("Please complete the quiz before marking this lesson as complete."); return; }
         try {
             await updateDoc(doc(db, 'courses', courseId, 'enrollmentRequests', user.uid), { completedItems: arrayUnion(selectedLesson.id) });
@@ -691,7 +822,8 @@ export default function CourseViewerPage() {
     }, [modules, enrollmentData]);
 
     const isCurrentLessonComplete = enrollmentData?.completedItems?.includes(selectedLesson?.id || '') ?? false;
-    const isReadyToComplete = selectedLesson && (!selectedLesson.quiz || quizAttempt) && !isCurrentLessonComplete;
+    // Ready to complete if: No quiz OR quiz exists and has been attempted
+    const isReadyToComplete = selectedLesson && (!selectedLesson.quiz || latestAttempt) && !isCurrentLessonComplete;
 
     useEffect(() => {
         if (authLoading) return;
@@ -699,7 +831,7 @@ export default function CourseViewerPage() {
         setLoading(true); fetchData();
     }, [courseId, user, authLoading, router, fetchData]);
 
-    // --- NEW: Track Last Access ---
+    // --- Track Last Access ---
     useEffect(() => {
         if (user && courseId) {
             const updateLastAccess = async () => {
@@ -817,7 +949,6 @@ export default function CourseViewerPage() {
                                 </div>
                             )}
 
-                            {/* --- FIX APPLIED HERE --- */}
                             <div 
                                 className="prose prose-lg max-w-none mb-12 leading-relaxed
                                            prose-headings:text-gray-900 prose-p:text-gray-700 prose-strong:text-gray-900 prose-li:text-gray-700
@@ -847,17 +978,34 @@ export default function CourseViewerPage() {
                                 </div>
                             )}
 
-                            {selectedLesson.quiz && (
+                            {/* --- QUIZ SECTION --- */}
+                            {selectedLesson.quiz && currentModuleId && (
                                 <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 delay-150">
-                                    {quizAttempt ? (
-                                        <QuizResult attempt={quizAttempt} quiz={selectedLesson.quiz} />
-                                    ) : (
+                                    {quizState === 'start' && (
+                                        <QuizStartScreen 
+                                            quiz={selectedLesson.quiz} 
+                                            onStart={() => setQuizState('taking')} 
+                                            attemptCount={attemptsList.length}
+                                            isLocked={selectedLesson.quiz.settings.isLocked}
+                                        />
+                                    )}
+
+                                    {quizState === 'taking' && (
                                         <QuizTaker 
                                             quiz={selectedLesson.quiz}
                                             courseId={courseId}
-                                            moduleId={currentModuleId!}
+                                            moduleId={currentModuleId}
                                             lessonId={selectedLesson.id}
                                             onQuizCompleted={handleQuizCompleted}
+                                        />
+                                    )}
+
+                                    {quizState === 'result' && latestAttempt && (
+                                        <QuizResult 
+                                            attempt={latestAttempt} 
+                                            quiz={selectedLesson.quiz} 
+                                            canRetake={canRetake}
+                                            onRetake={handleRetakeQuiz}
                                         />
                                     )}
                                 </div>
@@ -873,7 +1021,7 @@ export default function CourseViewerPage() {
                                             </p>
                                         ) : (
                                             <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">
-                                                {selectedLesson.quiz && !quizAttempt ? 'Complete the quiz to finish.' : 'Ready to move on?'}
+                                                {selectedLesson.quiz && !latestAttempt ? 'Complete the quiz to finish.' : 'Ready to move on?'}
                                             </p>
                                         )}
                                     </div>

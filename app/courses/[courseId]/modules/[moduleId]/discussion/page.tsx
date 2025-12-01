@@ -18,7 +18,8 @@ import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import ImageUploader from '@/components/ImageUploader'; // Importing your existing component
+import ImageUploader from '@/components/ImageUploader';
+import BackButton from '@/components/BackButton'; // 1. Import BackButton
 import { 
     MessageSquare, 
     Send, 
@@ -36,7 +37,7 @@ import {
 interface Post { 
     id: string; 
     text: string; 
-    imageUrl?: string; // NEW: Image support
+    imageUrl?: string; 
     authorId: string; 
     createdAt: any; 
     isReplyTo: string | null; 
@@ -65,7 +66,7 @@ const PostForm = ({
 }) => {
     const { user } = useAuth();
     const [text, setText] = useState('');
-    const [imageUrl, setImageUrl] = useState(''); // State for image
+    const [imageUrl, setImageUrl] = useState(''); 
     const [showImageUpload, setShowImageUpload] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -430,7 +431,10 @@ export default function DiscussionPage() {
     );
 
     return (
-        <div className="max-w-4xl mx-auto pb-20">
+        <div className="max-w-4xl mx-auto pt-12 pb-20 px-4">
+            {/* 2. Added BackButton Here */}
+            <BackButton />
+
             {/* Header */}
             <div className="mb-8">
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3">

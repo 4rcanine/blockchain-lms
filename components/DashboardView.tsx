@@ -7,11 +7,14 @@ import {
   getDoc,
   collection,
   query,
+  where,
+  getDocs,
+  updateDoc,
   orderBy,
   limit,
-  getDocs,
-  where,
   deleteDoc,
+  collectionGroup,
+  DocumentData,
 } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import useAuth from '@/hooks/useAuth';
@@ -21,11 +24,11 @@ import {
     Clock, 
     BookOpen, 
     Bell, 
+    CheckCircle, 
+    AlertCircle, 
     ArrowRight,
     LayoutDashboard,
     Loader2,
-    AlertCircle, // <--- FIX: Added missing import
-    CheckCircle,
     Sparkles
 } from 'lucide-react';
 
@@ -123,15 +126,17 @@ const CourseCard = ({
           </h3>
         </Link>
 
+        {/* --- TAGS SECTION (NOW CLICKABLE) --- */}
         {course.tags && course.tags.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4">
             {course.tags.slice(0, 3).map((tag: string) => (
-              <span
+              <Link
+                href={`/tags/${encodeURIComponent(tag)}`}
                 key={tag}
-                className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 rounded-full border border-indigo-100 dark:border-indigo-800/50"
+                className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 rounded-full border border-indigo-100 dark:border-indigo-800/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
               >
                 {tag}
-              </span>
+              </Link>
             ))}
           </div>
         )}
@@ -193,7 +198,6 @@ export default function DashboardView() {
         const profile = userSnap.data() as UserProfile;
         setUserProfile(profile);
 
-        // Fetch Notifications
         const notifQ = query(
             collection(db, 'users', authUser.uid, 'notifications'),
             orderBy('createdAt', 'desc')
@@ -235,7 +239,7 @@ export default function DashboardView() {
 
             setEnrolledCourses(coursesList);
 
-            // History Logic: Filter courses with history and sort by access time
+            // History Logic
             const history = [...coursesList]
                 .filter(c => (c.lastAccessedAt || 0) > 0)
                 .sort((a, b) => (b.lastAccessedAt || 0) - (a.lastAccessedAt || 0))
@@ -426,8 +430,7 @@ export default function DashboardView() {
 
   const renderEducatorDashboard = () => (
     <div className="space-y-16">
-      {/* Educator view remains the same as previous iterations to save space */}
-       <div>
+      <div>
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center gap-3">
              <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
@@ -435,13 +438,18 @@ export default function DashboardView() {
              </div>
              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">My Created Courses</h2>
           </div>
-          <Link href="/courses/create" className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-105 active:scale-95">
+          <Link
+            href="/courses/create"
+            className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:scale-105 active:scale-95"
+          >
             Create New Course <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
         {createdCourses.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {createdCourses.map((c) => <CourseCard key={c.id} course={c} isEducator />)}
+            {createdCourses.map((c) => (
+              <CourseCard key={c.id} course={c} isEducator />
+            ))}
           </div>
         ) : (
           <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700"><p className="text-gray-500 dark:text-gray-400">You haven't created any courses yet.</p></div>

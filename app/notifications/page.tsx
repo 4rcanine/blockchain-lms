@@ -7,6 +7,7 @@ import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import BackButton from '@/components/BackButton'; // 1. Import BackButton
 import { 
     Bell, 
     CheckCircle, 
@@ -121,6 +122,9 @@ export default function NotificationsPage() {
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-gray-900 py-12 px-4 sm:px-6 transition-colors duration-300">
             <div className="max-w-3xl mx-auto">
+                
+                {/* 2. Added BackButton */}
+                <BackButton />
                 
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">

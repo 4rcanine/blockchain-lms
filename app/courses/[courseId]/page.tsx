@@ -1,5 +1,4 @@
 // app/courses/[courseId]/page.tsx
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -13,6 +12,7 @@ import {
 import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
 import { useParams, useRouter } from 'next/navigation';
+import BackButton from '@/components/BackButton'; // Import the BackButton component
 
 // Interface for the course data
 interface Course { 
@@ -149,7 +149,8 @@ export default function CourseDetailPage() {
 
   // --- 4. Render UI ---
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto py-8"> {/* Added vertical padding */}
+      <BackButton /> {/* Integrate the BackButton here */}
       <div className="bg-white shadow-lg rounded-lg p-8">
         <div className="flex flex-wrap gap-2 mb-4">
           {course.tags.map(tag => (

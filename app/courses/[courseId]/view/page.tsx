@@ -1,3 +1,4 @@
+// app/courses/[courseId]/view/page.tsx
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
@@ -7,6 +8,7 @@ import {
     collection,
     getDocs,
     query,
+    where,
     orderBy,
     addDoc,
     serverTimestamp,
@@ -14,8 +16,6 @@ import {
     arrayUnion,
     writeBatch,
     Timestamp,
-    where,
-    deleteDoc
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
@@ -54,6 +54,7 @@ interface BaseQuestion {
     id: string;
     questionText: string;
     type: QuestionType;
+    imageUrl?: string; 
 }
 
 interface MultipleChoiceQuestion extends BaseQuestion {
@@ -77,6 +78,7 @@ type Question = MultipleChoiceQuestion | IdentificationQuestion | TrueOrFalseQue
 interface QuizSettings {
     showAnswers: boolean;
     isLocked: boolean;
+    maxAttempts?: number;
 }
 
 interface Quiz {
@@ -89,12 +91,13 @@ interface Quiz {
 }
 
 interface QuizAttempt {
-    id?: string;
+    id: string;
     studentId: string;
     score: number;
     totalQuestions: number;
     answers: { [key: string]: number | string | boolean };
     submittedAt: any;
+    attemptCount?: number; 
 }
 
 interface ReattemptGrant {
@@ -122,6 +125,11 @@ interface EnrollmentData {
     status: 'enrolled';
     completedItems?: string[];
 }
+
+// --- Helper Functions ---
+const getQuestionKey = (q: Question, index: number) => {
+    return q.id || `index-${index}`;
+};
 
 // --- Progress Bar Component ---
 const ProgressBar = ({ progress }: { progress: number }) => (
@@ -244,7 +252,11 @@ const QandASection = ({
                                 </div>
                             ) : (
                                 <div className="ml-11 mt-2 flex items-center gap-2 text-sm text-gray-400 dark:text-gray-500 italic">
-                                    <ClockIcon className="w-4 h-4" /> Awaiting an answer...
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <polyline points="12 6 12 12 16 14" />
+                                    </svg>
+                                    Awaiting an answer...
                                 </div>
                             )}
                         </div>
@@ -255,30 +267,22 @@ const QandASection = ({
     );
 };
 
-// --- Helper Icon ---
-const ClockIcon = ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-        <circle cx="12" cy="12" r="10" />
-        <polyline points="12 6 12 12 16 14" />
-    </svg>
-);
-
-// --- QuizStartScreen Component (Fixed Type Definition) ---
+// --- QuizStartScreen Component ---
 const QuizStartScreen = ({ 
     quiz, 
     onStart, 
-    attempts, 
+    attemptsMade, 
     retakesGranted,
     isLocked 
 }: { 
     quiz: Quiz; 
     onStart: () => void; 
-    attempts: QuizAttempt[];
+    attemptsMade: number;
     retakesGranted: number;
     isLocked: boolean;
 }) => {
-    const totalAllowedAttempts = 1 + retakesGranted;
-    const attemptsMade = attempts.length;
+    const baseAttempts = quiz.settings?.maxAttempts || 1;
+    const totalAllowedAttempts = baseAttempts + retakesGranted;
     const canTakeQuiz = attemptsMade < totalAllowedAttempts && !isLocked;
 
     return (
@@ -314,7 +318,7 @@ const QuizStartScreen = ({
             ) : (
                 <div className="inline-flex items-center gap-2 px-6 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 font-bold rounded-xl border border-amber-100 dark:border-amber-900">
                     <Lock className="w-5 h-5" />
-                    <span>No Attempts Remaining</span>
+                    <span>Max Attempts Reached</span>
                 </div>
             )}
         </div>
@@ -327,12 +331,14 @@ const QuizTaker = ({
     courseId,
     moduleId,
     lessonId,
+    currentAttemptCount, 
     onQuizCompleted,
 }: {
     quiz: Quiz;
     courseId: string;
     moduleId: string;
     lessonId: string;
+    currentAttemptCount: number;
     onQuizCompleted: () => void;
 }) => {
     const { user } = useAuth();
@@ -340,8 +346,8 @@ const QuizTaker = ({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
 
-    const handleAnswerSelect = (questionId: string, value: number | string | boolean) => {
-        setSelectedAnswers((prev) => ({ ...prev, [questionId]: value }));
+    const handleAnswerSelect = (key: string, value: number | string | boolean) => {
+        setSelectedAnswers((prev) => ({ ...prev, [key]: value }));
     };
 
     const handleSubmit = async () => {
@@ -357,8 +363,9 @@ const QuizTaker = ({
         setError('');
 
         let score = 0;
-        quiz.questions.forEach((q) => {
-            const studentAnswer = selectedAnswers[q.id];
+        quiz.questions.forEach((q, index) => {
+            const key = getQuestionKey(q, index);
+            const studentAnswer = selectedAnswers[key];
             
             if (q.type === 'multiple-choice') {
                 if (studentAnswer === q.correctAnswerIndex) score++;
@@ -375,30 +382,38 @@ const QuizTaker = ({
         });
 
         const attemptData = {
+            id: user.uid,
             studentId: user.uid,
             studentEmail: user.email || 'Unknown',
             score: score,
             totalQuestions: quiz.questions.length,
             answers: selectedAnswers,
             submittedAt: serverTimestamp(),
+            attemptCount: currentAttemptCount + 1 
         };
 
         try {
             const batch = writeBatch(db);
-            // 1. Create a NEW attempt document with auto-generated ID
-            const attemptsCollectionRef = collection(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'quizAttempts');
-            const newAttemptDocRef = doc(attemptsCollectionRef);
-            batch.set(newAttemptDocRef, attemptData);
+            const attemptDocRef = doc(
+                db, 
+                'courses', courseId, 
+                'modules', moduleId, 
+                'lessons', lessonId, 
+                'quizzes', quiz.id, 
+                'quizAttempts', 
+                user.uid
+            );
+            
+            batch.set(attemptDocRef, attemptData);
 
-            // 2. Mark lesson as completed for student
             const enrollmentDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
             batch.update(enrollmentDocRef, { completedItems: arrayUnion(lessonId) });
             
             await batch.commit();
             onQuizCompleted();
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to submit quiz:', err);
-            setError('Failed to submit your quiz. Please try again.');
+            setError(`Failed to submit: ${err.message}`);
         } finally {
             setIsSubmitting(false);
         }
@@ -412,85 +427,99 @@ const QuizTaker = ({
                 </div>
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{quiz.title}</h2>
-                    <p className="text-gray-500 dark:text-gray-400 text-sm">Complete the quiz to test your knowledge.</p>
+                    <p className="text-gray-500 dark:text-gray-400 text-sm">Attempt {currentAttemptCount + 1}</p>
                 </div>
             </div>
 
             <div className="space-y-6">
-                {quiz.questions.map((q, qIndex) => (
-                    <div key={q.id || qIndex} className="p-6 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 shadow-sm">
-                        <div className="flex gap-3 mb-4">
-                            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-sm font-bold">
-                                {qIndex + 1}
-                            </span>
-                            <p className="font-medium text-lg text-gray-900 dark:text-white">{q.questionText}</p>
-                        </div>
-                        
-                        <div className="ml-9">
-                            {q.type === 'multiple-choice' && (
-                                <div className="space-y-3">
-                                    {q.options.map((option, oIndex) => (
-                                        <label
-                                            key={oIndex}
-                                            className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${
-                                                selectedAnswers[q.id] === oIndex
-                                                    ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 dark:border-indigo-400 ring-1 ring-indigo-500 dark:ring-indigo-400'
-                                                    : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                            }`}
-                                        >
-                                            <input
-                                                type="radio"
-                                                name={`question-${q.id}`}
-                                                value={oIndex}
-                                                onChange={() => handleAnswerSelect(q.id, oIndex)}
-                                                checked={selectedAnswers[q.id] === oIndex}
-                                                className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
-                                            />
-                                            <span className="ml-3 text-gray-700 dark:text-gray-200">{option}</span>
-                                        </label>
-                                    ))}
+                {quiz.questions.map((q, qIndex) => {
+                    const qKey = getQuestionKey(q, qIndex);
+
+                    return (
+                        <div key={qKey} className="p-6 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 shadow-sm">
+                            <div className="flex gap-3 mb-4">
+                                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-sm font-bold">
+                                    {qIndex + 1}
+                                </span>
+                                <p className="font-medium text-lg text-gray-900 dark:text-white">{q.questionText}</p>
+                            </div>
+
+                            {q.imageUrl && (
+                                <div className="ml-9 mb-6">
+                                    <img 
+                                        src={q.imageUrl} 
+                                        alt={`Visual for question ${qIndex + 1}`} 
+                                        className="max-h-64 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm" 
+                                    />
                                 </div>
                             )}
-
-                            {q.type === 'identification' && (
-                                <input
-                                    type="text"
-                                    placeholder="Type your answer here..."
-                                    value={(selectedAnswers[q.id] as string) || ''}
-                                    onChange={(e) => handleAnswerSelect(q.id, e.target.value)}
-                                    className="w-full p-4 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                                />
-                            )}
-
-                            {q.type === 'true-or-false' && (
-                                <div className="flex gap-4">
-                                    {['True', 'False'].map((val) => {
-                                        const boolVal = val === 'True';
-                                        return (
+                            
+                            <div className="ml-9">
+                                {q.type === 'multiple-choice' && (
+                                    <div className="space-y-3">
+                                        {q.options.map((option, oIndex) => (
                                             <label
-                                                key={val}
-                                                className={`flex-1 p-4 border rounded-xl cursor-pointer text-center font-medium transition-all ${
-                                                    selectedAnswers[q.id] === boolVal
-                                                        ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 dark:border-indigo-400 text-indigo-700 dark:text-indigo-300'
-                                                        : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                                key={oIndex}
+                                                className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${
+                                                    selectedAnswers[qKey] === oIndex
+                                                        ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 dark:border-indigo-400 ring-1 ring-indigo-500 dark:ring-indigo-400'
+                                                        : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'
                                                 }`}
                                             >
                                                 <input
                                                     type="radio"
-                                                    name={`question-${q.id}`}
-                                                    onChange={() => handleAnswerSelect(q.id, boolVal)}
-                                                    checked={selectedAnswers[q.id] === boolVal}
-                                                    className="sr-only"
+                                                    name={`question-${qKey}`}
+                                                    value={oIndex}
+                                                    onChange={() => handleAnswerSelect(qKey, oIndex)}
+                                                    checked={selectedAnswers[qKey] === oIndex}
+                                                    className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
                                                 />
-                                                {val}
+                                                <span className="ml-3 text-gray-700 dark:text-gray-200">{option}</span>
                                             </label>
-                                        );
-                                    })}
-                                </div>
-                            )}
+                                        ))}
+                                    </div>
+                                )}
+
+                                {q.type === 'identification' && (
+                                    <input
+                                        type="text"
+                                        placeholder="Type your answer here..."
+                                        value={(selectedAnswers[qKey] as string) || ''}
+                                        onChange={(e) => handleAnswerSelect(qKey, e.target.value)}
+                                        className="w-full p-4 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                                    />
+                                )}
+
+                                {q.type === 'true-or-false' && (
+                                    <div className="flex gap-4">
+                                        {['True', 'False'].map((val) => {
+                                            const boolVal = val === 'True';
+                                            return (
+                                                <label
+                                                    key={val}
+                                                    className={`flex-1 p-4 border rounded-xl cursor-pointer text-center font-medium transition-all ${
+                                                        selectedAnswers[qKey] === boolVal
+                                                            ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 dark:border-indigo-400 text-indigo-700 dark:text-indigo-300'
+                                                            : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                                    }`}
+                                                >
+                                                    <input
+                                                        type="radio"
+                                                        name={`question-${qKey}`}
+                                                        onChange={() => handleAnswerSelect(qKey, boolVal)}
+                                                        checked={selectedAnswers[qKey] === boolVal}
+                                                        className="sr-only"
+                                                    />
+                                                    {val}
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
             {error && (
                 <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg flex items-center gap-2">
@@ -514,14 +543,16 @@ const QuizResult = ({
     attempts, 
     quiz, 
     canRetake, 
-    onRetake 
+    onRetake,
+    attemptsMade
 }: { 
     attempts: QuizAttempt[]; 
     quiz: Quiz; 
     canRetake: boolean;
     onRetake: () => void;
+    attemptsMade: number;
 }) => {
-    // The latest attempt is the first one because we order by desc in fetch
+    // Latest attempt
     const latestAttempt = attempts[0];
     const highestScore = Math.max(...attempts.map(a => a.score));
     const percentage = Math.round((latestAttempt.score / latestAttempt.totalQuestions) * 100);
@@ -537,22 +568,22 @@ const QuizResult = ({
                     
                     <div className="flex items-center gap-4">
                         <div className="px-3 py-1.5 bg-white dark:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
-                            <Trophy className="w-4 h-4 text-amber-500" />
-                            <span>Highest: {highestScore} / {quiz.questions.length}</span>
-                        </div>
-                        <div className="px-3 py-1.5 bg-white dark:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
                             <History className="w-4 h-4 text-indigo-500" />
-                            <span>Attempts: {attempts.length}</span>
+                            <span>Attempt #{attemptsMade}</span>
                         </div>
                     </div>
 
-                    {canRetake && (
+                    {canRetake ? (
                          <button 
                             onClick={onRetake}
                             className="mt-6 flex items-center gap-2 px-4 py-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-lg font-bold hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition-colors"
                         >
                             <RotateCcw className="w-4 h-4" /> Retake Quiz
                         </button>
+                    ) : (
+                        <p className="mt-6 text-sm text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
+                            <Lock className="w-3 h-3" /> Max attempts reached
+                        </p>
                     )}
                 </div>
                 <div className="flex items-center gap-4">
@@ -571,7 +602,8 @@ const QuizResult = ({
             {showAnswers ? (
                 <div className="space-y-6">
                     {quiz.questions.map((q, qIndex) => {
-                        const studentAnswer = latestAttempt.answers[q.id];
+                        const qKey = getQuestionKey(q, qIndex);
+                        const studentAnswer = latestAttempt.answers[qKey];
                         let isCorrect = false;
                         
                         if (q.type === 'multiple-choice') isCorrect = studentAnswer === q.correctAnswerIndex;
@@ -579,7 +611,7 @@ const QuizResult = ({
                         else if (q.type === 'true-or-false') isCorrect = studentAnswer === q.correctAnswer;
 
                         return (
-                            <div key={q.id || qIndex} className={`p-6 border rounded-xl bg-white dark:bg-gray-800 shadow-sm ${isCorrect ? 'border-green-200 dark:border-green-900/50' : 'border-red-200 dark:border-red-900/50'}`}>
+                            <div key={qKey} className={`p-6 border rounded-xl bg-white dark:bg-gray-800 shadow-sm ${isCorrect ? 'border-green-200 dark:border-green-900/50' : 'border-red-200 dark:border-red-900/50'}`}>
                                 <div className="flex gap-3 mb-3">
                                     <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold ${isCorrect ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
                                         {isCorrect ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
@@ -637,6 +669,7 @@ const QuizResult = ({
     );
 };
 
+// --- Helper for Images (Markdown) ---
 const convertMarkdownImagesToHtml = (htmlContent: string) => {
     if (!htmlContent) return '';
     const markdownImageRegex = /!\[([^\]]*)\]\(([^)]*)\)/g;
@@ -665,38 +698,60 @@ export default function CourseViewerPage() {
     const [quizAttempts, setQuizAttempts] = useState<QuizAttempt[]>([]);
     const [retakesGranted, setRetakesGranted] = useState(0);
 
+    // FIX: State to store calculated attemptsMade
+    const [attemptsMade, setAttemptsMade] = useState(0);
+
     const checkQuizStatus = useCallback(async (moduleId: string, lessonId: string, quizId: string) => {
         if (!user) return;
         
-        // 1. Fetch ALL attempts (ordered by submittedAt desc)
-        const attemptsRef = collection(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quizId, 'quizAttempts');
-        const q = query(attemptsRef, where('studentId', '==', user.uid), orderBy('submittedAt', 'desc'));
-        const querySnapshot = await getDocs(q);
-        
-        const attemptsList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as QuizAttempt[];
-        setQuizAttempts(attemptsList);
-        
-        // 2. Fetch reattempt grant count
         try {
-            const reattemptDocRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quizId, 'reattempts', user.uid);
+            // Fetch attempt using specific ID (user.uid)
+            const attemptDocRef = doc(
+                db, 
+                'courses', courseId, 
+                'modules', moduleId, 
+                'lessons', lessonId, 
+                'quizzes', quizId, 
+                'quizAttempts', 
+                user.uid
+            );
+            
+            const attemptSnap = await getDoc(attemptDocRef);
+            
+            if (attemptSnap.exists()) {
+                const data = attemptSnap.data() as QuizAttempt;
+                // FIX: Spread order fixed to avoid TS overwrite error
+                setQuizAttempts([ { ...data, id: attemptSnap.id } ]);
+                
+                // FIX: Set attemptsMade from the doc property, fallback to 1 if legacy doc exists but no count
+                setAttemptsMade(data.attemptCount || 1);
+                setQuizState('result');
+            } else {
+                setQuizAttempts([]);
+                setAttemptsMade(0);
+                setQuizState('start');
+            }
+
+            // Fetch reattempt grant count
+            const reattemptDocRef = doc(
+                db, 
+                'courses', courseId, 
+                'modules', moduleId, 
+                'lessons', lessonId, 
+                'quizzes', quizId, 
+                'reattempts', 
+                user.uid
+            );
             const reattemptDocSnap = await getDoc(reattemptDocRef);
             if (reattemptDocSnap.exists()) {
-                setRetakesGranted((reattemptDocSnap.data() as ReattemptGrant).count || 0);
+                setRetakesGranted((reattemptDocSnap.data() as any).count || 0);
             } else {
                 setRetakesGranted(0);
             }
         } catch (e) {
-            console.error("Error checking reattempts:", e);
-            setRetakesGranted(0);
-        }
-
-        // 3. Determine state
-        if (attemptsList.length > 0) {
-            setQuizState('result');
-        } else {
+            console.error("Error checking quiz status:", e);
             setQuizState('start');
         }
-
     }, [courseId, user]);
 
     const fetchData = useCallback(async () => {
@@ -742,7 +797,7 @@ export default function CourseViewerPage() {
                                         title: qData.title,
                                         questions: qData.questions || [],
                                         dueDate: qData.dueDate,
-                                        settings: qData.settings || { showAnswers: true, isLocked: false },
+                                        settings: qData.settings || { showAnswers: true, isLocked: false, maxAttempts: 1 },
                                         createdAt: qData.createdAt,
                                     } as Quiz);
                                 }
@@ -846,7 +901,9 @@ export default function CourseViewerPage() {
     // Ready to complete if: No quiz OR quiz exists and has been attempted
     const isReadyToComplete = selectedLesson && (!selectedLesson.quiz || quizAttempts.length > 0) && !isCurrentLessonComplete;
     // Calculation: 1 base attempt + granted retakes > current attempts
-    const canRetakeQuiz = quizAttempts.length < (1 + retakesGranted);
+    const canRetakeQuiz = selectedLesson?.quiz?.settings?.maxAttempts 
+        ? attemptsMade < (selectedLesson.quiz.settings.maxAttempts + retakesGranted)
+        : attemptsMade < (1 + retakesGranted);
 
     useEffect(() => {
         if (authLoading) return;
@@ -1008,9 +1065,10 @@ export default function CourseViewerPage() {
                                         <QuizStartScreen 
                                             quiz={selectedLesson.quiz} 
                                             onStart={() => setQuizState('taking')} 
-                                            attempts={quizAttempts}
+                                            // attempts={quizAttempts} <-- REMOVED to fix error
                                             retakesGranted={retakesGranted}
                                             isLocked={selectedLesson.quiz.settings.isLocked}
+                                            attemptsMade={attemptsMade} // Using explicit count
                                         />
                                     )}
 
@@ -1020,6 +1078,7 @@ export default function CourseViewerPage() {
                                             courseId={courseId}
                                             moduleId={currentModuleId}
                                             lessonId={selectedLesson.id}
+                                            currentAttemptCount={attemptsMade} // Pass current count
                                             onQuizCompleted={handleQuizCompleted}
                                         />
                                     )}
@@ -1030,6 +1089,7 @@ export default function CourseViewerPage() {
                                             quiz={selectedLesson.quiz} 
                                             canRetake={canRetakeQuiz}
                                             onRetake={handleRetakeQuiz}
+                                            attemptsMade={attemptsMade} // Pass for display
                                         />
                                     )}
                                 </div>

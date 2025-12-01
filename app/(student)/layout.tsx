@@ -15,13 +15,15 @@ import {
     Calendar, 
     BookOpen, 
     Settings,
-    GraduationCap
+    GraduationCap,
+    Award // <--- NEW ICON
 } from 'lucide-react';
 
 const sidebarNavLinks = [
     { name: 'Dashboard', href: '/student/dashboard', icon: LayoutDashboard },
     { name: 'Course Catalog', href: '/courses', icon: BookOpen },
     { name: 'My Calendar', href: '/calendar', icon: Calendar },
+    { name: 'My Grades', href: '/student/grades', icon: Award },
     { name: 'Notifications', href: '/notifications', icon: Bell },
     { name: 'My Profile', href: '/student/profile', icon: User },
     { name: 'Settings', href: '/student/settings', icon: Settings },
@@ -42,7 +44,7 @@ export default function StudentLayout({
         const notifsRef = collection(db, 'users', user.uid, 'notifications');
         const q = query(notifsRef, where('isRead', '==', false));
         
-        // --- FIX 1: Added Error Handler to prevent app crash on permission errors ---
+        // Added Error Handler to prevent app crash on permission errors
         const unsubscribe = onSnapshot(q, 
             (snapshot) => {
                 setUnreadCount(snapshot.size);
@@ -55,9 +57,7 @@ export default function StudentLayout({
     }, [user]);
 
     return (
-        // --- FIX 2: Layout Structure ---
-        // 1. h-screen: Forces full viewport height
-        // 2. overflow-hidden: Prevents double scrollbars
+        // Layout Structure
         <div className="flex h-screen bg-slate-50 dark:bg-gray-900 transition-colors duration-300 relative overflow-hidden">
             
             {/* Ambient Background Blobs (for Glassmorphism) */}

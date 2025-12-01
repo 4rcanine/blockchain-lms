@@ -22,6 +22,7 @@ import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
 import AddContentModal from '@/components/AddContentModal';
 import VideoUploader from '@/components/VideoUploader';
+import ImageUploader from '@/components/ImageUploader';
 import Link from 'next/link';
 import RichTextEditor, { RichTextEditorRef } from '@/components/RichTextEditor';
 import { 
@@ -46,7 +47,8 @@ import {
     RefreshCw,
     Settings,
     ChevronDown,
-    ChevronUp
+    ChevronUp,
+    History // Imported History icon
 } from 'lucide-react';
 
 /* ------------------------------- Utility -------------------------------- */
@@ -64,6 +66,7 @@ interface BaseQuestion {
     id: string;
     questionText: string;
     type: QuestionType;
+    imageUrl?: string;
 }
 
 interface MultipleChoiceQuestion extends BaseQuestion {
@@ -87,6 +90,7 @@ type Question = MultipleChoiceQuestion | IdentificationQuestion | TrueOrFalseQue
 interface QuizSettings {
     showAnswers: boolean;
     isLocked: boolean;
+    maxAttempts: number; // NEW: Added maxAttempts
 }
 
 interface Quiz {
@@ -124,7 +128,6 @@ interface Module {
     lessons: Lesson[];
 }
 
-// --- NEW TYPES FROM MERGE ---
 interface QuizAttempt { 
     id: string; 
     studentId: string; 
@@ -156,7 +159,6 @@ const LessonForm = ({
     const [error, setError] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     
-    // FIX: Ref pattern to prevent infinite re-renders
     const contentRef = useRef(existingLesson?.content || '');
     const editorRef = useRef<RichTextEditorRef>(null);
     const initialContent = useRef(existingLesson?.content || '').current;
@@ -392,9 +394,8 @@ const StudentAttemptRow = ({
         setIsSaving(true);
         const reattemptRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'reattempts', student.studentId);
         try {
-            // Grant additional retakes on top of what they might already have
             await setDoc(reattemptRef, { count: (student.retakesGranted || 0) + retakeCount });
-            onUpdate(); // Refresh parent to show new count
+            onUpdate(); 
             setRetakeCount(1);
         } catch (error) { 
             console.error("Failed to grant retake:", error); 
@@ -428,9 +429,9 @@ const StudentAttemptRow = ({
                 <button 
                     onClick={grantRetake} 
                     disabled={isSaving}
-                    className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors whitespace-nowrap"
+                    className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors whitespace-nowrap flex items-center gap-1"
                 >
-                    {isSaving ? 'Saving...' : '+ Grant'}
+                    {isSaving ? <RefreshCw className="w-3 h-3 animate-spin" /> : '+ Grant'}
                 </button>
             </td>
         </tr>
@@ -458,9 +459,10 @@ const QuizManager = ({
     const [loading, setLoading] = useState(false);
     const [studentData, setStudentData] = useState<any[]>([]);
     const [isTableExpanded, setIsTableExpanded] = useState(false);
+    // State for managing max attempts
+    const [maxAttempts, setMaxAttempts] = useState(quiz.settings.maxAttempts || 1);
 
     useEffect(() => {
-        // Fetch all attempts and re-attempt grants for this quiz
         const fetchAttempts = async () => {
             try {
                 const attemptsRef = collection(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'quizAttempts');
@@ -471,7 +473,6 @@ const QuizManager = ({
                 const reattemptsSnap = await getDocs(reattemptsRef);
                 const reattempts = new Map(reattemptsSnap.docs.map(d => [d.id, (d.data() as ReattemptGrant).count]));
 
-                // Group attempts by student
                 const groupedByStudent = attempts.reduce((acc, attempt) => {
                     if (!acc[attempt.studentId]) {
                         acc[attempt.studentId] = { studentId: attempt.studentId, studentEmail: attempt.studentEmail, attempts: [], highestScore: 0 };
@@ -483,7 +484,6 @@ const QuizManager = ({
                     return acc;
                 }, {} as any);
 
-                // Add re-take info and turn into array
                 const studentArray = Object.values(groupedByStudent).map((student: any) => {
                     student.retakesGranted = reattempts.get(student.studentId) || 0;
                     return student;
@@ -504,30 +504,29 @@ const QuizManager = ({
         setLoading(true);
         try {
             const quizDataRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'quiz-data', 'main');
-            await updateDoc(quizDataRef, {
-                'settings.isLocked': !quiz.settings.isLocked
-            });
+            await updateDoc(quizDataRef, { 'settings.isLocked': !quiz.settings.isLocked });
             onUpdate();
-        } catch (error) {
-            console.error("Failed to toggle lock:", error);
-        } finally {
-            setLoading(false);
-        }
+        } catch (error) { console.error("Failed to toggle lock:", error); } finally { setLoading(false); }
     };
 
     const toggleShowAnswers = async () => {
         setLoading(true);
         try {
             const quizDataRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'quiz-data', 'main');
-            await updateDoc(quizDataRef, {
-                'settings.showAnswers': !quiz.settings.showAnswers
-            });
+            await updateDoc(quizDataRef, { 'settings.showAnswers': !quiz.settings.showAnswers });
             onUpdate();
-        } catch (error) {
-            console.error("Failed to toggle show answers:", error);
-        } finally {
-            setLoading(false);
-        }
+        } catch (error) { console.error("Failed to toggle show answers:", error); } finally { setLoading(false); }
+    };
+
+    // NEW: Update Max Attempts
+    const updateMaxAttempts = async () => {
+        if(maxAttempts < 1) return;
+        setLoading(true);
+        try {
+            const quizDataRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'quiz-data', 'main');
+            await updateDoc(quizDataRef, { 'settings.maxAttempts': maxAttempts });
+            onUpdate();
+        } catch (error) { console.error("Failed to update max attempts:", error); } finally { setLoading(false); }
     };
 
     return (
@@ -571,6 +570,23 @@ const QuizManager = ({
                         {quiz.settings.showAnswers ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                     </button>
 
+                    {/* NEW: Max Attempts Control */}
+                    <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-md p-1">
+                        <div className="p-1 text-gray-500 dark:text-gray-400">
+                            <History className="w-4 h-4" />
+                        </div>
+                        <input 
+                            type="number" 
+                            min="1" 
+                            value={maxAttempts} 
+                            onChange={(e) => setMaxAttempts(parseInt(e.target.value) || 1)}
+                            onBlur={updateMaxAttempts} // Save on blur (click away)
+                            onKeyDown={(e) => e.key === 'Enter' && updateMaxAttempts()} // Save on Enter
+                            className="w-10 bg-transparent text-center text-sm font-medium text-gray-700 dark:text-gray-200 focus:outline-none"
+                            title="Max Allowed Attempts (Press Enter to save)"
+                        />
+                    </div>
+
                     <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
 
                     <button onClick={onEdit} className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
@@ -592,6 +608,10 @@ const QuizManager = ({
                     <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
                         {quiz.settings.showAnswers ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                         <span>Results: {quiz.settings.showAnswers ? 'Answers Shown' : 'Answers Hidden'}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
+                        <History className="w-3.5 h-3.5" />
+                        <span>Attempts Allowed: {quiz.settings.maxAttempts || 1}</span>
                     </div>
                 </div>
 
@@ -635,8 +655,6 @@ const QuizManager = ({
                                             moduleId={moduleId}
                                             lessonId={lessonId}
                                             onUpdate={() => {
-                                                // Re-trigger fetch by toggling state or calling a refresher function
-                                                // For simplicity, we just trigger a re-render which calls useEffect
                                                 setIsTableExpanded(false);
                                                 setTimeout(() => setIsTableExpanded(true), 50);
                                             }}
@@ -677,6 +695,8 @@ const AddQuizForm = ({
     // Default settings
     const [showAnswers, setShowAnswers] = useState(lesson.quiz?.settings?.showAnswers ?? true);
     const [isLocked, setIsLocked] = useState(lesson.quiz?.settings?.isLocked ?? false);
+    // NEW: Max Attempts Setting
+    const [maxAttempts, setMaxAttempts] = useState(lesson.quiz?.settings?.maxAttempts ?? 1);
 
     const initialQuestions: Question[] = lesson.quiz?.questions 
         ? lesson.quiz.questions.map(q => ({ ...q, id: q.id || `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` })) 
@@ -749,7 +769,8 @@ const AddQuizForm = ({
                 dueDate: new Date(dueDate),
                 settings: {
                     showAnswers,
-                    isLocked
+                    isLocked,
+                    maxAttempts
                 },
                 courseId,
                 createdAt: lesson.quiz?.createdAt || serverTimestamp(),
@@ -802,7 +823,7 @@ const AddQuizForm = ({
                     <h5 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
                         <Settings className="w-4 h-4" /> Quiz Settings
                     </h5>
-                    <div className="flex flex-col sm:flex-row gap-6">
+                    <div className="flex flex-wrap gap-6 items-center">
                         <label className="flex items-center gap-2 cursor-pointer group">
                             <input 
                                 type="checkbox" 
@@ -811,7 +832,7 @@ const AddQuizForm = ({
                                 className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 border-gray-300 dark:border-gray-600 dark:bg-gray-700"
                             />
                             <span className="text-sm text-gray-600 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">
-                                Show answers after submission
+                                Show answers
                             </span>
                         </label>
 
@@ -823,8 +844,23 @@ const AddQuizForm = ({
                                 className="w-4 h-4 text-red-600 rounded focus:ring-red-500 border-gray-300 dark:border-gray-600 dark:bg-gray-700"
                             />
                             <span className="text-sm text-gray-600 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors flex items-center gap-1">
-                                <Lock className="w-3 h-3" /> Lock Quiz initially
+                                <Lock className="w-3 h-3" /> Lock Quiz
                             </span>
+                        </label>
+                        
+                        {/* NEW: Max Attempts Input in Create Form */}
+                        <label className="flex items-center gap-2">
+                            <div className="p-1 bg-gray-100 dark:bg-gray-700 rounded">
+                                <History className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                            </div>
+                            <span className="text-sm text-gray-600 dark:text-gray-300">Allowed Attempts:</span>
+                            <input 
+                                type="number" 
+                                min="1"
+                                value={maxAttempts}
+                                onChange={e => setMaxAttempts(Math.max(1, parseInt(e.target.value) || 1))}
+                                className="w-16 p-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-900 dark:text-white focus:ring-1 focus:ring-blue-500"
+                            />
                         </label>
                     </div>
                 </div>
@@ -851,9 +887,35 @@ const AddQuizForm = ({
                                 placeholder="Enter question..." 
                                 value={q.questionText} 
                                 onChange={e => handleQuestionChange(q.id, 'questionText', e.target.value)} 
-                                className="w-full p-3 mb-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:border-blue-500 outline-none text-sm text-gray-900 dark:text-white resize-none"
+                                className="w-full p-3 mb-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:border-blue-500 outline-none text-sm text-gray-900 dark:text-white resize-none"
                                 rows={2}
                             />
+
+                            {/* Image Upload Section */}
+                            <div className="mb-4">
+                                {q.imageUrl ? (
+                                    <div className="relative inline-block mt-2">
+                                        <img 
+                                            src={q.imageUrl} 
+                                            alt="Question visual" 
+                                            className="h-32 w-auto object-cover rounded-lg border border-gray-200 dark:border-gray-700" 
+                                        />
+                                        <button 
+                                            type="button" 
+                                            onClick={() => handleQuestionChange(q.id, 'imageUrl', '')}
+                                            className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-sm transition-colors"
+                                            title="Remove image"
+                                        >
+                                            <X className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="mt-2 max-w-xs">
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Add Image (Optional)</p>
+                                        <ImageUploader onUploadComplete={(url) => handleQuestionChange(q.id, 'imageUrl', url)} />
+                                    </div>
+                                )}
+                            </div>
                             
                             {q.type === 'multiple-choice' && (
                                 <div className="space-y-2 pl-2 border-l-2 border-blue-100 dark:border-blue-900">
@@ -977,7 +1039,7 @@ export default function ManageCoursePage() {
                                         title: qData.title,
                                         questions: qData.questions || [],
                                         dueDate: qData.dueDate,
-                                        settings: qData.settings || { showAnswers: true, isLocked: false }, // Default settings
+                                        settings: qData.settings || { showAnswers: true, isLocked: false, maxAttempts: 1 }, // Default
                                         createdAt: qData.createdAt,
                                     } as Quiz);
                                 }
@@ -1015,6 +1077,7 @@ export default function ManageCoursePage() {
 
     useEffect(() => { fetchData(); }, [courseId]);
 
+    // ... (Delete handlers remain the same)
     const handleDeleteModule = async (moduleId: string) => {
         if (!window.confirm('Delete module?')) return;
         try {

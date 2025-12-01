@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { collection, getDocs, query } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation'; // 1. Import this
 import { 
     Search, 
     BookOpen, 
@@ -22,7 +23,7 @@ interface Course {
   imageUrl?: string;
 }
 
-// --- Loading Skeleton Component ---
+// ... (CourseSkeleton component remains the same) ...
 const CourseSkeleton = () => (
     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden h-full flex flex-col animate-pulse">
         <div className="h-48 bg-gray-200 dark:bg-gray-700" />
@@ -41,6 +42,7 @@ const CourseSkeleton = () => (
 );
 
 export default function CourseCatalog() {
+  const searchParams = useSearchParams(); // 2. Get URL params
   const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [allTags, setAllTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,8 +51,15 @@ export default function CourseCatalog() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
-  // --- Refs to allow scrollIntoView ---
   const tagRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  // 3. Effect to sync URL params to State
+  useEffect(() => {
+    const query = searchParams.get('q');
+    if (query) {
+        setSearchTerm(query);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const fetchCoursesAndTags = async () => {

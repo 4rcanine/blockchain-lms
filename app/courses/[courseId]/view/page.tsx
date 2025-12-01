@@ -928,7 +928,52 @@ export default function CourseViewerPage() {
         }
     }, [user, courseId]);
 
-    if (loading) return <div className="flex h-screen items-center justify-center text-gray-500 dark:text-gray-400 font-medium">Loading Course Content...</div>;
+    // --- MODERNIZED SKELETON LOADER ---
+    if (loading) {
+        return (
+            <div className="flex flex-col md:flex-row h-screen bg-slate-50 dark:bg-gray-900 overflow-hidden">
+                {/* Sidebar Skeleton */}
+                <aside className="w-full md:w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 hidden md:flex flex-col z-20">
+                    <div className="p-6 border-b border-gray-100 dark:border-gray-700 space-y-4">
+                        <div className="h-6 w-1/2 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="h-2.5 w-full bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse" />
+                    </div>
+                    <div className="p-4 space-y-4">
+                        {[1, 2, 3, 4, 5].map((i) => (
+                            <div key={i} className="space-y-2">
+                                <div className="h-4 w-1/3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                                <div className="h-10 w-full bg-gray-100 dark:bg-gray-700/50 rounded-xl animate-pulse" />
+                                <div className="h-10 w-full bg-gray-100 dark:bg-gray-700/50 rounded-xl animate-pulse" />
+                            </div>
+                        ))}
+                    </div>
+                </aside>
+
+                {/* Main Content Skeleton */}
+                <main className="flex-1 p-6 md:p-12 overflow-y-hidden">
+                    <div className="max-w-4xl mx-auto space-y-8">
+                        {/* Breadcrumb & Title */}
+                        <div className="space-y-4">
+                            <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                            <div className="h-10 w-3/4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                        </div>
+
+                        {/* Video Placeholder */}
+                        <div className="w-full aspect-video bg-gray-200 dark:bg-gray-700 rounded-2xl animate-pulse" />
+
+                        {/* Text Content */}
+                        <div className="space-y-3">
+                            <div className="h-4 w-full bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                            <div className="h-4 w-full bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                            <div className="h-4 w-5/6 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                            <div className="h-4 w-4/6 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                        </div>
+                    </div>
+                </main>
+            </div>
+        );
+    }
+
     if (error) return (
         <div className="flex h-screen items-center justify-center p-6">
             <div className="text-center max-w-md bg-red-50 dark:bg-red-900/20 p-8 rounded-2xl border border-red-100 dark:border-red-900">

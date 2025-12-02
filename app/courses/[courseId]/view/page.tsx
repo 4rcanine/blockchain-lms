@@ -1075,10 +1075,11 @@ export default function CourseViewerPage() {
                             )}
 
                             <div 
-                                className="prose prose-lg max-w-none mb-12 leading-relaxed
-                                           prose-headings:text-gray-900 prose-p:text-gray-700 prose-strong:text-gray-900 prose-li:text-gray-700
-                                           dark:prose-invert dark:prose-headings:text-white dark:prose-p:text-gray-300 dark:prose-strong:text-white dark:prose-li:text-gray-300"
-                                dangerouslySetInnerHTML={{ __html: convertMarkdownImagesToHtml(selectedLesson.content) }} 
+                            className="prose prose-lg max-w-none mb-12 leading-relaxed
+                                    prose-headings:text-gray-900 prose-p:text-gray-700 prose-strong:text-gray-900 prose-li:text-gray-700
+                                    dark:prose-invert dark:prose-headings:text-white dark:prose-p:text-gray-300 dark:prose-strong:text-white dark:prose-li:text-gray-300
+                                    [&_p:empty]:min-h-[1.5em]"  
+                            dangerouslySetInnerHTML={{ __html: convertMarkdownImagesToHtml(selectedLesson.content) }} 
                             />
                             
                             {selectedLesson.sandboxUrl && (

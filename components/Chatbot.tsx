@@ -23,38 +23,96 @@ export default function Chatbot() {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
     
-    // Ref for auto-scrolling to the bottom
+    // isLoading = Waiting for API response (Thinking...)
+    const [isLoading, setIsLoading] = useState(false);
+    // isTyping = The visual typewriter effect is active
+    const [isTyping, setIsTyping] = useState(false);
+    
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
+    // Auto-scroll when messages update
     useEffect(() => {
         scrollToBottom();
-    }, [messages, isLoading, isOpen]);
+    }, [messages, isLoading, isTyping, isOpen]);
+
+    // Cleanup typing interval on unmount
+    useEffect(() => {
+        return () => {
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        };
+    }, []);
+
+    // --- TYPEWRITER LOGIC ---
+    const simulateTyping = (fullText: string) => {
+        setIsTyping(true);
+        let index = 0;
+        
+        // Add an empty message for the AI first
+        setMessages(prev => [...prev, { text: '', sender: 'ai' }]);
+
+        const typeChar = () => {
+            setMessages(prev => {
+                const newMessages = [...prev];
+                // Target the last message (the AI one we just added)
+                const lastMessageIndex = newMessages.length - 1;
+                
+                // Safety check
+                if (lastMessageIndex >= 0) {
+                    // Update text to include up to current index
+                    // We use substring to ensure consistency rather than appending
+                    newMessages[lastMessageIndex] = {
+                        ...newMessages[lastMessageIndex],
+                        text: fullText.substring(0, index + 1)
+                    };
+                }
+                return newMessages;
+            });
+
+            index++;
+
+            if (index < fullText.length) {
+                // Determine speed (faster for long code blocks, slower for text)
+                const delay = Math.random() * 10 + 10; // Random between 10ms and 20ms
+                typingTimeoutRef.current = setTimeout(typeChar, delay);
+            } else {
+                setIsTyping(false);
+            }
+        };
+
+        // Start typing
+        typeChar();
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!input.trim()) return;
+        if (!input.trim() || isLoading || isTyping) return;
 
+        // 1. Add User Message
         const userMessage: Message = { text: input, sender: 'user' };
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
 
         try {
+            // 2. Fetch Full Response from API
             const response = await axios.post('/api/chat', { prompt: input });
-            const aiMessage: Message = { text: response.data.response, sender: 'ai' };
-            setMessages(prev => [...prev, aiMessage]);
+            const fullAiResponse = response.data.response;
+            
+            // 3. Stop Loading, Start Typing Effect
+            setIsLoading(false);
+            simulateTyping(fullAiResponse);
+
         } catch (error) {
             console.error("Chatbot error:", error);
-            const errorMessage: Message = { text: "I'm having trouble connecting to the neural network. Please try again later.", sender: 'ai' };
-            setMessages(prev => [...prev, errorMessage]);
-        } finally {
             setIsLoading(false);
+            // Error message also gets typed out
+            simulateTyping("I'm having trouble connecting to the neural network. Please try again later.");
         }
     };
 
@@ -121,7 +179,7 @@ export default function Chatbot() {
                                 {/* --- MARKDOWN RENDERER --- */}
                                 <ReactMarkdown
                                     components={{
-                                        p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+                                        p: ({node, ...props}) => <p className="mb-2 last:mb-0 animate-in fade-in" {...props} />,
                                         strong: ({node, ...props}) => <span className="font-bold text-inherit" {...props} />,
                                         ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-2" {...props} />,
                                         ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-2" {...props} />,
@@ -142,6 +200,11 @@ export default function Chatbot() {
                                 >
                                     {msg.text}
                                 </ReactMarkdown>
+                                
+                                {/* Blinking Cursor for latest AI message while typing */}
+                                {msg.sender === 'ai' && isTyping && index === messages.length - 1 && (
+                                    <span className="inline-block w-1.5 h-3.5 bg-indigo-500 ml-1 align-middle animate-pulse" />
+                                )}
                             </div>
 
                             {msg.sender === 'user' && (
@@ -152,7 +215,7 @@ export default function Chatbot() {
                         </div>
                     ))}
 
-                    {/* Loading Indicator */}
+                    {/* Loading Indicator (Shown ONLY when waiting for API, not while typing) */}
                     {isLoading && (
                         <div className="flex justify-start gap-3">
                             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center flex-shrink-0 shadow-sm">
@@ -175,13 +238,13 @@ export default function Chatbot() {
                             type="text"
                             value={input}
                             onChange={e => setInput(e.target.value)}
-                            placeholder="Type your question..."
-                            disabled={isLoading}
-                            className="w-full pl-4 pr-12 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+                            placeholder={isTyping ? "AI is typing..." : "Type your question..."}
+                            disabled={isLoading || isTyping}
+                            className="w-full pl-4 pr-12 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         />
                         <button 
                             type="submit" 
-                            disabled={!input.trim() || isLoading}
+                            disabled={!input.trim() || isLoading || isTyping}
                             className="absolute right-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed transition-colors shadow-sm"
                         >
                             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

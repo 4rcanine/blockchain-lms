@@ -21,14 +21,17 @@ import {
   Blocks
 } from 'lucide-react';
 
-// --- CONFIG: ADD YOUR CRYPTO PNG PATHS HERE ---
+// --- CONFIG ---
 const CRYPTO_IMAGES = [
-    '/btc.png', // Replace with your actual file names in the public folder
+    '/btc.png', 
     '/eth.png',
     '/sol.png',
     '/usdt.png',
     '/doge.png',
-    '/trx.png'
+    '/trx.png',
+    '/pepe.png',
+    '/shiba.png',
+    '/sui.png',
 ];
 
 // --- Type Definitions ---

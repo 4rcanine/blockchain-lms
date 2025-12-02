@@ -13,9 +13,9 @@ export async function POST(request: Request) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
-    // NEW PROMPT: This is engineered for a helpful, conversational response.
+    // Engineered Prompt
     const fullPrompt = `
-      You are an expert AI assistant for a Web3 learning platform called BlockchainLMS.
+      You are an expert AI assistant for a Web3 learning platform called CryptoLearn.
       A student has a question: "${prompt}".
       Your goal is to provide a clear, concise, and helpful answer to guide their learning.
       Do not answer with JSON. Respond in plain, conversational text.

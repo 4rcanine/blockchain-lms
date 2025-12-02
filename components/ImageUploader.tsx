@@ -7,10 +7,8 @@ interface ImageUploaderProps {
     onUploadComplete: (url: string) => void;
 }
 
-// --- IMPORTANT: UPDATE THESE VALUES ---
-// These should be the same as in your AddContentModal.tsx
-const CLOUDINARY_UPLOAD_PRESET = "lms_uploads"; // The name of your unsigned preset
-const CLOUDINARY_CLOUD_NAME = "dvfszba6c"; // Your cloud name
+const CLOUDINARY_UPLOAD_PRESET = "lms_uploads"; 
+const CLOUDINARY_CLOUD_NAME = "dvfszba6c"; 
 
 export default function ImageUploader({ onUploadComplete }: ImageUploaderProps) {
     const [uploading, setUploading] = useState(false);

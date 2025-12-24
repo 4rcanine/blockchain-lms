@@ -62,7 +62,6 @@ interface CalendarEvent {
   resource: { courseId: string; courseTitle: string };
 }
 
-// --- Custom Toolbar Component ---
 const CustomToolbar = (toolbar: ToolbarProps<CalendarEvent>) => {
     const goToBack = () => toolbar.onNavigate('PREV');
     const goToNext = () => toolbar.onNavigate('NEXT');
@@ -245,7 +244,6 @@ export default function CalendarPage() {
 
   return (
     <div className="space-y-6">
-        {/* CSS Overrides for Big Calendar Dark Mode Support */}
         <style jsx global>{`
             .rbc-calendar { font-family: inherit; }
             
@@ -291,7 +289,7 @@ export default function CalendarPage() {
                 // Controlled Props
                 view={currentView}
                 date={currentDate}
-                onView={(view) => setCurrentView(view)} // TypeScript infers 'view' correctly now
+                onView={(view) => setCurrentView(view)} 
                 onNavigate={(newDate) => setCurrentDate(newDate)}
                 
                 popup

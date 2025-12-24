@@ -32,12 +32,6 @@ export default function RootLayout({
           <div className="flex flex-col h-full">
             <Header />
             
-            {/* 
-              Main Content:
-              - flex-1: Fills remaining vertical space.
-              - overflow-y-auto: Allows independent scrolling of content (keeping Header visible).
-              - Note: Removed 'container' padding here so dashboard/sidebar layouts can use full width.
-            */}
             <main className="flex-1 overflow-y-auto">
               {children}
             </main>

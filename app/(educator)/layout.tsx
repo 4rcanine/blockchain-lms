@@ -46,7 +46,6 @@ export default function EducatorLayout({
     }, [user]);
 
     return (
-        // FIX: Switched to 'fixed' positioning.
         <div className="fixed top-20 bottom-0 left-0 right-0 flex bg-slate-50 dark:bg-gray-900 transition-colors duration-300 overflow-hidden">
             
             {/* Ambient Blobs */}

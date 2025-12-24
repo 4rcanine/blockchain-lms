@@ -3,12 +3,10 @@
 
 import { useState } from 'react';
 
-// --- Define the possible roles ---
 export type UserRole = 'student' | 'educator' | 'admin';
 
 interface AuthFormProps {
   mode: 'login' | 'signup';
-  // The onSubmit function now accepts a 'role' parameter
   onSubmit: (event: React.FormEvent<HTMLFormElement>, email: string, pass: string, role?: UserRole) => void;
 }
 
@@ -54,7 +52,7 @@ export default function AuthForm({ mode, onSubmit }: AuthFormProps) {
                     </div>
                 )}
 
-                {/* --- Existing Email and Password fields (no changes) --- */}
+                {/* --- Existing Email and Password fields --- */}
                 <div>
                     <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email Address</label>
                     <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2 mt-1 text-gray-900 border border-gray-300 rounded-md" />

@@ -698,7 +698,6 @@ export default function CourseViewerPage() {
     const [quizAttempts, setQuizAttempts] = useState<QuizAttempt[]>([]);
     const [retakesGranted, setRetakesGranted] = useState(0);
 
-    // FIX: State to store calculated attemptsMade
     const [attemptsMade, setAttemptsMade] = useState(0);
 
     const checkQuizStatus = useCallback(async (moduleId: string, lessonId: string, quizId: string) => {
@@ -720,10 +719,8 @@ export default function CourseViewerPage() {
             
             if (attemptSnap.exists()) {
                 const data = attemptSnap.data() as QuizAttempt;
-                // FIX: Spread order fixed to avoid TS overwrite error
                 setQuizAttempts([ { ...data, id: attemptSnap.id } ]);
                 
-                // FIX: Set attemptsMade from the doc property, fallback to 1 if legacy doc exists but no count
                 setAttemptsMade(data.attemptCount || 1);
                 setQuizState('result');
             } else {
@@ -880,7 +877,6 @@ export default function CourseViewerPage() {
 
     const handleMarkComplete = async () => {
         if (!user || !selectedLesson) return;
-        // Logic: If there is a quiz, and user hasn't passed/attempted it (no attempts), warn them.
         const isQuizPresentAndIncomplete = selectedLesson.quiz && quizAttempts.length === 0;
         
         if (isQuizPresentAndIncomplete) { alert("Please complete the quiz before marking this lesson as complete."); return; }
@@ -898,7 +894,6 @@ export default function CourseViewerPage() {
     }, [modules, enrollmentData]);
 
     const isCurrentLessonComplete = enrollmentData?.completedItems?.includes(selectedLesson?.id || '') ?? false;
-    // Ready to complete if: No quiz OR quiz exists and has been attempted
     const isReadyToComplete = selectedLesson && (!selectedLesson.quiz || quizAttempts.length > 0) && !isCurrentLessonComplete;
     // Calculation: 1 base attempt + granted retakes > current attempts
     const canRetakeQuiz = selectedLesson?.quiz?.settings?.maxAttempts 

@@ -82,7 +82,7 @@ export default function SignUpPage() {
         } catch (error: any) {
             console.error('Error signing up:', error);
             setError(error.message);
-            setStep(1); // Reset to step 1 on auth error so they can fix email/pass
+            setStep(1);
         } finally {
             setIsSubmitting(false);
         }
@@ -122,7 +122,6 @@ export default function SignUpPage() {
                         </div>
                     )}
 
-                    {/* --- STEP 1: Credentials --- */}
                     {step === 1 && (
                         <form onSubmit={handleNextStep} className="space-y-6">
                             
@@ -193,7 +192,6 @@ export default function SignUpPage() {
                         </form>
                     )}
 
-                    {/* --- STEP 2: Profile Info --- */}
                     {step === 2 && (
                         <form onSubmit={handleFinalSubmit} className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-300">
                             

@@ -54,8 +54,6 @@ export default function StudentLayout({
     }, [user]);
 
     return (
-        // FIX: Switched to 'fixed' positioning.
-        // This anchors the layout exactly 80px (20 * 4) from the top, preventing body scroll.
         <div className="fixed top-20 bottom-0 left-0 right-0 flex bg-slate-50 dark:bg-gray-900 transition-colors duration-300 overflow-hidden">
             
             {/* Ambient Background Blobs */}

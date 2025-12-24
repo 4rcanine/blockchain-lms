@@ -30,7 +30,7 @@ interface SelectOption {
 // -------------------- Component --------------------
 export default function CreateCourse() {
   const { user } = useAuth();
-  const { theme } = useTheme(); // Access theme to style React Select dynamically
+  const { theme } = useTheme();
   const router = useRouter();
 
   // -------------------- State --------------------
@@ -68,7 +68,6 @@ export default function CreateCourse() {
   }, []);
 
   // -------------------- React Select Styles --------------------
-  // Custom styles to make react-select compatible with dark mode
   const selectStyles: StylesConfig<SelectOption, true> = {
     control: (base, state) => ({
       ...base,

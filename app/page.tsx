@@ -81,7 +81,6 @@ const FloatingCryptoIcons = () => {
 
     useEffect(() => {
         const interval = setInterval(() => {
-            // Add a new icon every 800ms to 2000ms
             const newIcon = {
                 id: Date.now(),
                 x: Math.random() * 90, 
@@ -122,7 +121,6 @@ const FloatingCryptoIcons = () => {
                         alt="crypto" 
                         width={60} 
                         height={60}
-                        // UPDATED: Increased opacity here (was 40/20, now 90/60)
                         className="w-full h-full object-contain opacity-90 dark:opacity-60 drop-shadow-lg"
                     />
                 </div>
@@ -152,7 +150,6 @@ function CourseCard({ course }: { course: Course }) {
         <div className="group bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col overflow-hidden hover:-translate-y-1 h-full">
             <div className="relative h-48 overflow-hidden bg-gray-100 dark:bg-gray-700">
                 {course.imageUrl ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
                     <img 
                         src={course.imageUrl} 
                         alt={course.title} 

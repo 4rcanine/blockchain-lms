@@ -80,12 +80,10 @@ export default function GradesPage() {
                 const allQuizzesSnapshot = await getDocs(collectionGroup(db, 'quiz-data'));
                 
                 // 4. Fetch ALL My Attempts
-                // Using collectionGroup query for quizAttempts where studentId matches current user
                 const allAttemptsSnapshot = await getDocs(query(collectionGroup(db, 'quizAttempts'), where('studentId', '==', user.uid)));
 
                 // 5. Process Data
                 const gradesData: CourseGradeInfo[] = courses.map((course: any) => {
-                    // Filter quizzes that belong to THIS course ID
                     const quizzesForCourse = allQuizzesSnapshot.docs
                         .map(d => ({ id: d.id, ref: d.ref, ...d.data() } as any))
                         .filter(q => q.courseId === course.id);
@@ -96,9 +94,6 @@ export default function GradesPage() {
                     let totalPossibleScore = 0;
 
                     quizzesForCourse.forEach(quiz => {
-                        // Find the specific attempt for this quiz
-                        // Logic: The attempt's parent collection is 'quizAttempts', which is a subcollection of the quiz document.
-                        // We check if the attempt's path contains the quiz ID.
                         const attemptDoc = allAttemptsSnapshot.docs.find(a => a.ref.path.includes(quiz.ref.parent.parent.id));
 
                         if (attemptDoc) {
@@ -113,7 +108,6 @@ export default function GradesPage() {
                                 total: total 
                             });
                             
-                            // Only count towards overall grade if total > 0
                             if (total > 0) {
                                 totalScore += score;
                                 totalPossibleScore += total;

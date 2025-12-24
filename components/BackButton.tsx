@@ -2,13 +2,11 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react'; // Using an icon for a clean look
+import { ArrowLeft } from 'lucide-react';
 
 export default function BackButton() {
     const router = useRouter();
 
-    // The router.back() function is a built-in Next.js feature
-    // that navigates to the previous page in the browser's history stack.
     const handleBack = () => {
         router.back();
     };

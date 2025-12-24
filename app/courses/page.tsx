@@ -5,7 +5,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { collection, getDocs, query } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation'; // 1. Import this
+import { useSearchParams } from 'next/navigation';
 import { 
     Search, 
     BookOpen, 
@@ -23,7 +23,6 @@ interface Course {
   imageUrl?: string;
 }
 
-// ... (CourseSkeleton component remains the same) ...
 const CourseSkeleton = () => (
     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden h-full flex flex-col animate-pulse">
         <div className="h-48 bg-gray-200 dark:bg-gray-700" />

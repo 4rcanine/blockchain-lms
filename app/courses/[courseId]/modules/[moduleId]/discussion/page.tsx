@@ -19,7 +19,7 @@ import useAuth from '@/hooks/useAuth';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import ImageUploader from '@/components/ImageUploader';
-import BackButton from '@/components/BackButton'; // 1. Import BackButton
+import BackButton from '@/components/BackButton';
 import { 
     MessageSquare, 
     Send, 
@@ -203,7 +203,7 @@ const DiscussionPost = ({
             const postRef = doc(db, 'courses', courseId, 'modules', moduleId, 'discussionPosts', post.id);
             await updateDoc(postRef, { text: editText.trim() });
             setIsEditing(false);
-            onPostCreated(); // Refresh list
+            onPostCreated();
         } catch (error) {
             console.error("Error updating post:", error);
         } finally {

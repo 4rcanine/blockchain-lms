@@ -6,7 +6,7 @@ import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
 import { User, Briefcase, Github, Twitter, Globe, Wallet, Loader2, BookOpen } from 'lucide-react';
 import Link from 'next/link';
-import BackButton from '@/components/BackButton'; // 1. Import BackButton
+import BackButton from '@/components/BackButton';
 
 // --- Type Definitions ---
 interface UserProfile {
@@ -88,7 +88,6 @@ export default function UserProfilePage() {
             <div className="flex flex-col items-center justify-center h-[50vh] text-gray-500 dark:text-gray-400">
                 <User className="w-12 h-12 mb-2 opacity-20" />
                 <p>User not found.</p>
-                {/* Optional: Add a back button here too for better UX */}
                 <div className="mt-4">
                      <BackButton /> 
                 </div>
@@ -99,7 +98,6 @@ export default function UserProfilePage() {
     return (
         <div className="max-w-5xl mx-auto py-12 px-4">
             
-            {/* 2. Add BackButton component here */}
             <BackButton />
 
             {/* --- Profile Header Card --- */}

@@ -53,19 +53,15 @@ export default function Chatbot() {
         setIsTyping(true);
         let index = 0;
         
-        // Add an empty message for the AI first
         setMessages(prev => [...prev, { text: '', sender: 'ai' }]);
 
         const typeChar = () => {
             setMessages(prev => {
                 const newMessages = [...prev];
-                // Target the last message (the AI one we just added)
                 const lastMessageIndex = newMessages.length - 1;
                 
                 // Safety check
                 if (lastMessageIndex >= 0) {
-                    // Update text to include up to current index
-                    // We use substring to ensure consistency rather than appending
                     newMessages[lastMessageIndex] = {
                         ...newMessages[lastMessageIndex],
                         text: fullText.substring(0, index + 1)
@@ -77,8 +73,7 @@ export default function Chatbot() {
             index++;
 
             if (index < fullText.length) {
-                // Determine speed (faster for long code blocks, slower for text)
-                const delay = Math.random() * 10 + 10; // Random between 10ms and 20ms
+                const delay = Math.random() * 10 + 10; // 10-20ms per character
                 typingTimeoutRef.current = setTimeout(typeChar, delay);
             } else {
                 setIsTyping(false);
@@ -215,7 +210,7 @@ export default function Chatbot() {
                         </div>
                     ))}
 
-                    {/* Loading Indicator (Shown ONLY when waiting for API, not while typing) */}
+                    {/* Loading Indicator */}
                     {isLoading && (
                         <div className="flex justify-start gap-3">
                             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center flex-shrink-0 shadow-sm">

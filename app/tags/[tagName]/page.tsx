@@ -6,10 +6,9 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import BackButton from '@/components/BackButton'; // 1. Import BackButton
+import BackButton from '@/components/BackButton'; 
 import { 
     Hash, 
-    // ArrowLeft, // 2. Removed ArrowLeft (it's inside BackButton now)
     BookOpen, 
     Layers, 
     ArrowRight, 

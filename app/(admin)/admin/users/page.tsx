@@ -3,9 +3,8 @@
 
 import { useEffect, useState } from 'react';
 import { collection, getDocs, query } from 'firebase/firestore';
-import { db } from '../../../../firebase/config'; // Adjust path if needed
+import { db } from '../../../../firebase/config'; 
 
-// This extends our previous UserProfile type
 interface UserProfile {
   uid: string;
   email: string;
@@ -32,7 +31,6 @@ export default function UserManagement() {
         setUsers(usersList);
       } catch (err: any) {
         console.error(err);
-        // This error will likely be 'Missing or insufficient permissions' if rules are wrong
         setError('You do not have permission to view this page.');
       } finally {
         setLoading(false);

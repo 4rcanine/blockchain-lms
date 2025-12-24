@@ -119,7 +119,6 @@ export default function MyCourses() {
       
       {/* --- Content --- */}
       {courses.length === 0 ? (
-        // Empty State
         <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-gray-800 rounded-3xl border border-dashed border-gray-300 dark:border-gray-700">
             <div className="w-20 h-20 bg-gray-100 dark:bg-gray-700/50 rounded-full flex items-center justify-center mb-4">
                 <SearchX className="w-10 h-10 text-gray-400 dark:text-gray-500" />
@@ -136,7 +135,7 @@ export default function MyCourses() {
             </Link>
         </div>
       ) : (
-        // Course Grid
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {courses.map(course => (
             <div 

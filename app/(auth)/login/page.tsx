@@ -30,11 +30,9 @@ export default function LoginPage() {
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // Redirect will happen via the Auth Context or manually here
       router.push('/dashboard');
     } catch (err: any) {
       console.error('Login error:', err);
-      // Map common firebase errors to user-friendly messages
       if (err.code === 'auth/invalid-credential') {
         setError('Invalid email or password.');
       } else if (err.code === 'auth/too-many-requests') {

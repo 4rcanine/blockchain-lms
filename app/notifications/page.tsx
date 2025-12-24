@@ -7,7 +7,7 @@ import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import BackButton from '@/components/BackButton'; // 1. Import BackButton
+import BackButton from '@/components/BackButton';
 import { 
     Bell, 
     CheckCircle, 
@@ -28,7 +28,6 @@ interface Notification {
     isRead: boolean;
 }
 
-// --- Helper to get icon based on type ---
 const getNotificationIcon = (type: string) => {
     switch (type) {
         case 'enrollment_request':
@@ -57,7 +56,6 @@ export default function NotificationsPage() {
 
         const fetchNotifications = async () => {
             const notifsRef = collection(db, 'users', user.uid, 'notifications');
-            // Order by Read status first (unread on top), then date
             const q = query(notifsRef, orderBy('isRead', 'asc'), orderBy('createdAt', 'desc'));
             
             try {
@@ -123,7 +121,6 @@ export default function NotificationsPage() {
         <div className="min-h-screen bg-slate-50 dark:bg-gray-900 py-12 px-4 sm:px-6 transition-colors duration-300">
             <div className="max-w-3xl mx-auto">
                 
-                {/* 2. Added BackButton */}
                 <BackButton />
                 
                 {/* Header */}

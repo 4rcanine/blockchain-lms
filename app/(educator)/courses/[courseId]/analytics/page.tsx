@@ -476,7 +476,7 @@ function aggregateChartData(students: StudentProgress[], grades: RawGrade[]): Ch
         return data.sum / data.count;
     });
 
-    // 2. Line Chart (Top 3 students for clarity)
+    // 2. Line Chart
     const lineChartDatasets: ChartDataset[] = [];
     const studentsToTrack = students.slice(0, 3); 
 

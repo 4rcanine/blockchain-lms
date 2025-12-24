@@ -1,7 +1,7 @@
 // components/Header.tsx
 'use client';
 
-import { useState, useEffect } from 'react'; // Added useState
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'firebase/auth';
@@ -25,7 +25,7 @@ export default function Header() {
   const router = useRouter();
   
   const [profileUrl, setProfileUrl] = useState('/dashboard');
-  const [searchQuery, setSearchQuery] = useState(''); // 1. State for search
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const fetchUserRole = async () => {
@@ -61,7 +61,6 @@ export default function Header() {
   // 2. Handle Search Submission
   const handleSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
-        // Redirect to the course catalog with the query param
         router.push(`/courses?q=${encodeURIComponent(searchQuery.trim())}`);
     }
   };
@@ -110,7 +109,7 @@ export default function Header() {
               </div>
           )}
 
-          {/* --- RIGHT: Controls (Rest remains the same) --- */}
+          {/* --- RIGHT: Controls  --- */}
           <div className="flex items-center gap-3 sm:gap-6">
             <button 
                 onClick={toggleTheme}

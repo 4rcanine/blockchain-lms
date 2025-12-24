@@ -1,10 +1,10 @@
-// Import the functions you need from the SDKs you need
+// SDK FUNCTIONS
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-// Your web app's Firebase configuration from the Firebase Console
+// Firebase configuration object
 const firebaseConfig = {
   apiKey: "AIzaSyDHrvaQ7oliyyCIVTj4Xq8coTAEGUszUh8",
   authDomain: "blockchainlms-b863c.firebaseapp.com",
@@ -15,18 +15,18 @@ const firebaseConfig = {
   measurementId: "G-2SW7PCERGC"
 };
 
-// Initialize Firebase for Server-Side Rendering (SSR), prevents re-initialization
+// Initialize Firebase app
 let app;
 if (!getApps().length) {
   app = initializeApp(firebaseConfig);
 } else {
-  app = getApps()[0]; // Use the existing app if already initialized
+  app = getApps()[0];
 }
 
-// Get Firebase services
+// Initialize Firebase services
 const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-// Export the services for use in other parts of the app
+// Export the initialized services
 export { app, auth, db, storage };

@@ -76,7 +76,6 @@ export default function AddContentModal({ onClose, onContentAdded }: AddContentM
             if (resource_type === 'image') {
                 markdown = `![${original_filename}](${secure_url})`;
             } else if (resource_type === 'video') {
-                 // If you want to support video links in text (not player)
                  markdown = `[Watch Video: ${original_filename}](${secure_url})`;
             } else {
                 markdown = `[Download ${file.name}](${secure_url})`;

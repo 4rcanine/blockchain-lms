@@ -48,7 +48,7 @@ import {
     Settings,
     ChevronDown,
     ChevronUp,
-    History // Imported History icon
+    History
 } from 'lucide-react';
 
 /* ------------------------------- Utility -------------------------------- */
@@ -90,7 +90,7 @@ type Question = MultipleChoiceQuestion | IdentificationQuestion | TrueOrFalseQue
 interface QuizSettings {
     showAnswers: boolean;
     isLocked: boolean;
-    maxAttempts: number; // NEW: Added maxAttempts
+    maxAttempts: number;
 }
 
 interface Quiz {
@@ -390,13 +390,10 @@ const StudentAttemptRow = ({
     const [retakeCount, setRetakeCount] = useState(1);
     const [isSaving, setIsSaving] = useState(false);
 
-    // --- FIX: LOGIC UPDATE ---
+
     const baseAttempts = quiz.settings.maxAttempts || 1;
     const grantedRetakes = student.retakesGranted || 0;
     const totalAllowed = baseAttempts + grantedRetakes;
-
-    // FIX: Since we overwrite the document, we must read the 'attemptCount' field.
-    // If 'attemptCount' doesn't exist (legacy data), fallback to array length.
     const latestAttempt = student.attempts[0]; 
     const attemptsUsed = latestAttempt?.attemptCount || student.attempts.length;
 
@@ -404,7 +401,6 @@ const StudentAttemptRow = ({
         setIsSaving(true);
         const reattemptRef = doc(db, 'courses', courseId, 'modules', moduleId, 'lessons', lessonId, 'quizzes', quiz.id, 'reattempts', student.studentId);
         try {
-            // Grant additional retakes on top of what they might already have
             await setDoc(reattemptRef, { count: grantedRetakes + retakeCount });
             onUpdate(); 
             setRetakeCount(1);
@@ -480,7 +476,6 @@ const QuizManager = ({
     const [loading, setLoading] = useState(false);
     const [studentData, setStudentData] = useState<any[]>([]);
     const [isTableExpanded, setIsTableExpanded] = useState(false);
-    // State for managing max attempts
     const [maxAttempts, setMaxAttempts] = useState(quiz.settings.maxAttempts || 1);
 
     useEffect(() => {
@@ -1098,7 +1093,6 @@ export default function ManageCoursePage() {
 
     useEffect(() => { fetchData(); }, [courseId]);
 
-    // ... (Delete handlers remain the same)
     const handleDeleteModule = async (moduleId: string) => {
         if (!window.confirm('Delete module?')) return;
         try {

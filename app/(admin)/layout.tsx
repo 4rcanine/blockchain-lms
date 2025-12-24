@@ -5,54 +5,47 @@ import { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import useAuth from '../../hooks/useAuth'; // Adjust path if needed
-import { db } from '../../firebase/config'; // Adjust path if needed
+import useAuth from '../../hooks/useAuth'; 
+import { db } from '../../firebase/config';
 
 export default function AdminLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
-    // --- PART 1: Authorization Logic from Phase 8 ---
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
-    // This is the line that was missing!
     const [isAuthorized, setIsAuthorized] = useState(false);
 
     useEffect(() => {
-        if (authLoading) return; // Wait until auth state is determined
+        if (authLoading) return; 
         if (!user) {
-            router.push('/login'); // Not logged in, redirect
+            router.push('/login');
             return;
         }
 
-        // Check the user's role from Firestore
         const checkAdminRole = async () => {
             const userDocRef = doc(db, 'users', user.uid);
             const userDocSnap = await getDoc(userDocRef);
             if (userDocSnap.exists() && userDocSnap.data().role === 'admin') {
                 setIsAuthorized(true);
             } else {
-                router.push('/dashboard'); // Not an admin, redirect to dashboard
+                router.push('/dashboard');
             }
         };
 
         checkAdminRole();
     }, [user, authLoading, router]);
 
-    // --- PART 2: Navigation UI Logic from Phase 9 ---
-    const pathname = usePathname(); // Hook to get the current URL path
+    const pathname = usePathname();
 
-    // Show a loading state until authorization is confirmed
     if (!isAuthorized) {
         return <div>Verifying admin privileges...</div>;
     }
 
-    // Styles for our navigation links
     const activeLink = "px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md";
     const inactiveLink = "px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md";
 
-    // --- PART 3: The Combined Return Statement ---
     return (
         <div>
             {/* Admin Navigation */}

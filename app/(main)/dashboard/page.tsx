@@ -25,9 +25,6 @@ export default function DashboardDispatch() {
                 const userDoc = await getDoc(doc(db, 'users', user.uid));
                 if (userDoc.exists()) {
                     const role = userDoc.data().role;
-                    
-                    // Simulate a brief aesthetic delay if data loads too fast (optional, prevents flickering)
-                    // await new Promise(r => setTimeout(r, 500)); 
 
                     if (role === 'student') {
                         router.replace('/student/dashboard'); 
@@ -62,9 +59,7 @@ export default function DashboardDispatch() {
                         {/* Spinner */}
                         <Loader2 className="w-12 h-12 text-indigo-600 dark:text-indigo-400 animate-spin" />
                         
-                        {/* Optional Center Icon (e.g. Logo or Shield) stays static inside */}
                         <div className="absolute inset-0 flex items-center justify-center">
-                            {/* Tiny dot or icon in center if desired */}
                         </div>
                     </div>
                 </div>

@@ -1,6 +1,6 @@
 // functions/src/index.ts
 
-import functions from "firebase-functions";
+import * as functions from "firebase-functions";
 // --- THIS IS THE FIX ---
 // Before: import * as cors from "cors";
 // After:

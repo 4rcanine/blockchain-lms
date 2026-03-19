@@ -1,7 +1,7 @@
 // app/courses/page.tsx
 'use client';
 
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, Suspense } from 'react';
 import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
@@ -14,7 +14,8 @@ import {
     Sparkles, 
     Layers,
     ArrowRight,
-    Lock 
+    Lock,
+    Loader2
 } from 'lucide-react';
 
 interface Course {
@@ -36,7 +37,7 @@ const CourseSkeleton = () => (
     </div>
 );
 
-export default function CourseCatalog() {
+function CourseCatalogContent() {
   const { user } = useAuth(); 
   const searchParams = useSearchParams(); // 2. Get URL params
   const [allCourses, setAllCourses] = useState<Course[]>([]);
@@ -388,5 +389,13 @@ export default function CourseCatalog() {
         
       </div>
     </div>
+  );
+}
+
+export default function CourseCatalog() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-indigo-500" /></div>}>
+      <CourseCatalogContent />
+    </Suspense>
   );
 }

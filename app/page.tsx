@@ -352,9 +352,9 @@ export default function LandingPage() {
                         {/* CARD 2: AI Assistant */}
                         <RevealOnScroll delay={200}>
                             <FeatureCard 
-                                icon={<Bot className="w-8 h-8 text-white" />}
-                                title="AI Assistant"
-                                desc="Stuck on a bug? Our AI-powered mentor is available 24/7 to debug code and explain complex concepts."
+                                icon={<ShieldCheck className="w-8 h-8 text-white" />}
+                                title="Tiered Curriculum"
+                                desc="Master Web3 with structured paths from Basic to Advanced. Our prerequisite system ensures you build a solid foundation before tackling expert smart contract development."
                                 color="bg-indigo-500"
                                 gradient="from-indigo-500 to-purple-500"
                             />

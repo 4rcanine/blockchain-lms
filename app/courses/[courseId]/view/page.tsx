@@ -1,6 +1,6 @@
 // app/courses/[courseId]/view/page.tsx
 'use client';
-
+import CertificateCard from '@/components/CertificateCard';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
     doc,
@@ -33,7 +33,10 @@ import {
     RotateCcw,
     Lock,
     Trophy,
-    History
+    History,
+    X,
+    ArrowRight,
+    Paperclip
 } from 'lucide-react';
 
 // --- Type Definitions ---
@@ -111,8 +114,10 @@ interface Lesson {
     content: string;
     qanda?: QandA[];
     quiz?: Quiz;
+    quizAttempt?: QuizAttempt | null;
     sandboxUrl?: string;
     videoUrl?: string; 
+    attachments?: { name: string; url: string }[]; 
 }
 
 interface Module {
@@ -436,7 +441,7 @@ const QuizTaker = ({
                     const qKey = getQuestionKey(q, qIndex);
 
                     return (
-                        <div key={qKey} className="p-6 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 shadow-sm">
+                        <div key={qKey} className="p-6 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 shadow-sm min-h-[150px]">
                             <div className="flex gap-3 mb-4">
                                 <span className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-sm font-bold">
                                     {qIndex + 1}
@@ -445,11 +450,12 @@ const QuizTaker = ({
                             </div>
 
                             {q.imageUrl && (
-                                <div className="ml-9 mb-6">
+                                <div className="ml-9 mb-6 h-64 w-full max-w-md bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden">
                                     <img 
                                         src={q.imageUrl} 
                                         alt={`Visual for question ${qIndex + 1}`} 
-                                        className="max-h-64 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm" 
+                                        className="max-h-64 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm w-full h-full object-contain" 
+                                        onLoad={(e) => e.currentTarget.parentElement?.classList.remove('animate-pulse')}
                                     />
                                 </div>
                             )}
@@ -457,7 +463,7 @@ const QuizTaker = ({
                             <div className="ml-9">
                                 {q.type === 'multiple-choice' && (
                                     <div className="space-y-3">
-                                        {q.options.map((option, oIndex) => (
+                                        {q.options?.map((option, oIndex) => (
                                             <label
                                                 key={oIndex}
                                                 className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${
@@ -621,7 +627,7 @@ const QuizResult = ({
 
                                 {q.type === 'multiple-choice' && (
                                     <div className="ml-9 space-y-2">
-                                        {q.options.map((option, oIndex) => {
+                                        {q.options?.map((option, oIndex) => {
                                             const isSelected = studentAnswer === oIndex;
                                             const isThisCorrect = q.correctAnswerIndex === oIndex;
                                             let styleClass = 'bg-gray-50 dark:bg-gray-700/30 border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-400';
@@ -693,12 +699,64 @@ export default function CourseViewerPage() {
     const [enrollmentData, setEnrollmentData] = useState<EnrollmentData | null>(null);
     const [isInstructor, setIsInstructor] = useState(false);
 
+    const [previewFile, setPreviewFile] = useState<{url: string, name: string} | null>(null);
+    // course completion 
+    const [isEligible, setIsEligible] = useState(false);
+    const [finalGrade, setFinalGrade] = useState(0);
+    const [isClaimed, setIsClaimed] = useState(false);
+
+    const [course, setCourse] = useState<{ title: string } | null>(null);
+
+    const [showCertModal, setShowCertModal] = useState(false);
+    const [claimedCertData, setClaimedCertData] = useState<any>(null);
+
     // -- Quiz Flow States --
     const [quizState, setQuizState] = useState<'start' | 'taking' | 'result'>('start');
     const [quizAttempts, setQuizAttempts] = useState<QuizAttempt[]>([]);
     const [retakesGranted, setRetakesGranted] = useState(0);
 
     const [attemptsMade, setAttemptsMade] = useState(0);
+
+    const trackLabUsage = async () => {
+    if (!user || !selectedLesson) return;
+    try {
+        const enrollmentRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
+        await updateDoc(enrollmentRef, {
+            // Track this lesson ID as a lab that was engaged with
+            engagedLabs: arrayUnion(selectedLesson.id),
+            lastAccessedAt: serverTimestamp()
+        });
+    } catch (e) {
+        console.error("Tracking error:", e);
+    }
+};
+
+    const components = {
+        p: ({ children }: { children: React.ReactNode }) => {
+            const childNodes = Array.isArray(children) ? children : [children];
+            const firstChild = childNodes[0];
+            if (typeof firstChild === 'string' && firstChild.startsWith('![Image]')) {
+                const imgMatch = firstChild.match(/!\[.*?\]\((.*?)\)/);
+                const url = imgMatch ? imgMatch[1] : null;
+                if (url) return <img src={url} alt="Lesson Image" className="my-6 max-w-full rounded-lg shadow-md" />;
+            }
+            return <p>{children}</p>;
+        },
+    };
+
+    const isLastLessonOfCourse = useMemo(() => {
+        if (!modules.length) return false;
+
+        // Get the very last module
+        const lastModule = modules[modules.length - 1];
+        if (!lastModule.lessons || !lastModule.lessons.length) return false;
+
+        // Get the very last lesson of that module
+        const lastLesson = lastModule.lessons[lastModule.lessons.length - 1];
+
+        // Check if the currently selected lesson ID matches the last lesson's ID
+        return selectedLesson?.id === lastLesson.id;
+    }, [modules, selectedLesson]);
 
     const checkQuizStatus = useCallback(async (moduleId: string, lessonId: string, quizId: string) => {
         if (!user) return;
@@ -756,12 +814,37 @@ export default function CourseViewerPage() {
 
         try {
             const enrollmentRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
-            const enrollmentSnap = await getDoc(enrollmentRef);
+            const userRef = doc(db, 'users', user.uid);
+
+            const [enrollmentSnap, userSnap, courseDocSnap] = await Promise.all([
+                getDoc(enrollmentRef),
+                getDoc(userRef),
+                getDoc(doc(db, 'courses', courseId))
+            ]);
+
             if (!enrollmentSnap.exists()) throw new Error('You are not enrolled in this course.');
             setEnrollmentData(enrollmentSnap.data() as EnrollmentData);
 
-            const courseDocRef = doc(db, 'courses', courseId);
-            const courseDocSnap = await getDoc(courseDocRef);
+            if (courseDocSnap.exists()) {
+            setCourse(courseDocSnap.data() as { title: string });
+        }
+
+
+            if (userSnap.exists()) {
+                const userData = userSnap.data();
+                // Look for this specific course in the user's certificates array
+                const existingCert = userData.certificates?.find((c: any) => c.courseId === courseId);
+                
+                if (existingCert) {
+                    setIsClaimed(true);
+                    setClaimedCertData({
+                        ...existingCert,
+                        // Ensure the name is passed for display
+                        studentName: userData.displayName || userData.firstName + " " + userData.lastName || userData.email 
+                    });
+                }
+            }
+
             const courseDocData = courseDocSnap.exists() ? courseDocSnap.data() : null;
             const instructorIds = (courseDocData?.instructorIds as string[] | undefined) || [];
             setIsInstructor(instructorIds.includes(user.uid));
@@ -809,6 +892,23 @@ export default function CourseViewerPage() {
                                 selectedQuiz = quizCandidates[0];
                             }
 
+                            let attempt: QuizAttempt | null = null;
+                            if (selectedQuiz) {
+                                const attemptRef = doc(
+                                    db, 
+                                    'courses', courseId, 
+                                    'modules', moduleDoc.id, // moduleDoc is available in the outer map
+                                    'lessons', lessonDoc.id, 
+                                    'quizzes', selectedQuiz.id, 
+                                    'quizAttempts', 
+                                    user.uid
+                                );
+                                const attemptSnap = await getDoc(attemptRef);
+                                if (attemptSnap.exists()) {
+                                    attempt = { id: attemptSnap.id, ...attemptSnap.data() } as QuizAttempt;
+                                }
+                            }
+
                             return {
                                 id: lessonDoc.id,
                                 title: lessonData.title,
@@ -817,6 +917,8 @@ export default function CourseViewerPage() {
                                 videoUrl: lessonData.videoUrl,
                                 qanda: qandaList,
                                 quiz: selectedQuiz,
+                                quizAttempt: attempt,
+                                attachments: lessonData.attachments || [], 
                             } as Lesson;
                         })
                     );
@@ -857,15 +959,20 @@ export default function CourseViewerPage() {
 
     const handleQuizCompleted = async () => {
         if (selectedLesson?.quiz && currentModuleId) {
-            await checkQuizStatus(currentModuleId, selectedLesson.id, selectedLesson.quiz.id);
-            // Refresh enrollment data to show checkmark
-             if (user) {
-                const enrollmentRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
-                const snap = await getDoc(enrollmentRef);
-                if(snap.exists()) setEnrollmentData(snap.data() as EnrollmentData);
-             }
+        // 1. Refresh the specific quiz status (existing)
+        await checkQuizStatus(currentModuleId, selectedLesson.id, selectedLesson.quiz.id);
+        
+        // 2. IMPORTANT: Refresh all data so the 'modules' state gets the new quizAttempt
+        await fetchData(); 
+
+        // 3. Refresh enrollment data (existing)
+        if (user) {
+            const enrollmentRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
+            const snap = await getDoc(enrollmentRef);
+            if(snap.exists()) setEnrollmentData(snap.data() as EnrollmentData);
         }
-    };
+    }
+};
 
     const handleRetakeQuiz = async () => {
         if (!user || !selectedLesson?.quiz || !currentModuleId) return;
@@ -882,7 +989,8 @@ export default function CourseViewerPage() {
         if (isQuizPresentAndIncomplete) { alert("Please complete the quiz before marking this lesson as complete."); return; }
         try {
             await updateDoc(doc(db, 'courses', courseId, 'enrollmentRequests', user.uid), { completedItems: arrayUnion(selectedLesson.id) });
-            setEnrollmentData((prev) => ({ ...prev!, completedItems: [...(prev?.completedItems || []).filter(id => id !== selectedLesson.id), selectedLesson.id] }));
+            setEnrollmentData((prev) => ({ ...prev!, completedItems: [...(prev?.completedItems || []), selectedLesson.id] }));
+            alert("Lesson completed! The next lesson is now unlocked.");
         } catch (error) { console.error(error); setError('Failed to mark complete.'); }
     };
 
@@ -899,6 +1007,60 @@ export default function CourseViewerPage() {
     const canRetakeQuiz = selectedLesson?.quiz?.settings?.maxAttempts 
         ? attemptsMade < (selectedLesson.quiz.settings.maxAttempts + retakesGranted)
         : attemptsMade < (1 + retakesGranted);
+
+    // 1. Create a flattened list of all lessons in order
+    const allLessonsOrdered = useMemo(() => {
+        return modules.flatMap(m => m.lessons);
+    }, [modules]);
+
+    // 2. Helper to check if a specific lesson is locked
+    const checkIfLessonLocked = (lessonId: string) => {
+        // Educators and Admins can always click everything
+        if (isInstructor) return false;
+
+        const index = allLessonsOrdered.findIndex(l => l.id === lessonId);
+        
+        // First lesson of the course is always unlocked
+        if (index === 0) return false;
+
+        // A lesson is locked if the PREVIOUS lesson is not in the completedItems array
+        const previousLesson = allLessonsOrdered[index - 1];
+        const isPreviousComplete = enrollmentData?.completedItems?.includes(previousLesson.id);
+
+        return !isPreviousComplete;
+    };
+    //course completion
+
+    const handleClaimCertificate = async () => {
+        if (!user || !course) return;
+
+        try {
+            const userRef = doc(db, 'users', user.uid);
+            const certData = {
+                courseId: courseId,
+                courseTitle: course.title,
+                grade: finalGrade,
+                claimedAt: new Date(),
+                certificateId: `CERT-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+            };
+
+            await updateDoc(userRef, {
+                certificates: arrayUnion(certData),
+                // This also marks the course as "Completed" for your future prerequisite logic
+                completedCourses: arrayUnion(courseId) 
+            });
+
+            setIsClaimed(true);
+            setClaimedCertData({
+            ...certData,
+            studentName: user.displayName || user.email
+        });
+        setShowCertModal(true);
+        } catch (err) {
+            console.error("Certificate Error:", err);
+            alert("Failed to claim certificate: " + err.message);
+        }
+    };
 
     useEffect(() => {
         if (authLoading) return;
@@ -923,10 +1085,49 @@ export default function CourseViewerPage() {
         }
     }, [user, courseId]);
 
+    // course completion
+    useEffect(() => {
+    if (!modules.length || !enrollmentData) return;
+
+        // Calculate Average Grade
+        // We look at all lessons that have a quiz and sum the scores
+        let totalScore = 0;
+        let totalQuestions = 0;
+        let quizCountFound = 0;
+
+        modules.forEach(mod => {
+        mod.lessons.forEach(lesson => {
+            // Only count lessons that actually have a quiz
+            if (lesson.quiz) {
+                if (lesson.quizAttempt) {
+                    totalScore += lesson.quizAttempt.score;
+                    totalQuestions += lesson.quizAttempt.totalQuestions;
+                    quizCountFound++;
+                } else {
+                    // If there is a quiz but no attempt, we count the questions
+                    // but score is 0. This ensures the grade stays low until all quizzes are done.
+                    totalQuestions += lesson.quiz.questions.length;
+                }
+            }
+        });
+    });
+
+    const calculatedGrade = totalQuestions > 0 ? Math.round((totalScore / totalQuestions) * 100) : 0;
+    
+    console.log(`Grade Debug: Score ${totalScore} / Total ${totalQuestions} = ${calculatedGrade}%`);
+
+    setFinalGrade(calculatedGrade);
+
+    if (courseProgress === 100 && calculatedGrade >= 70) {
+        setIsEligible(true);
+    } else {
+        setIsEligible(false);
+    }
+}, [modules, enrollmentData, courseProgress]);
     // --- MODERNIZED SKELETON LOADER ---
     if (loading) {
         return (
-            <div className="flex flex-col md:flex-row h-screen bg-slate-50 dark:bg-gray-900 overflow-hidden">
+            <div className="flex flex-col md:flex-row h-screen w-screen bg-slate-50 dark:bg-gray-900 overflow-hidden">
                 {/* Sidebar Skeleton */}
                 <aside className="w-full md:w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 hidden md:flex flex-col z-20">
                     <div className="p-6 border-b border-gray-100 dark:border-gray-700 space-y-4">
@@ -981,7 +1182,7 @@ export default function CourseViewerPage() {
     );
 
     return (
-        <div className="flex flex-col md:flex-row h-screen bg-slate-50 dark:bg-gray-900 overflow-hidden transition-colors duration-300">
+        <div className="flex flex-col md:flex-row h-screen w-screen bg-slate-50 dark:bg-gray-900 overflow-hidden transition-colors duration-300">
             {/* --- SIDEBAR --- */}
             <aside className="w-full md:w-80 bg-white dark:bg-gray-800 border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-700 flex flex-col h-auto md:h-full z-20 shadow-sm md:shadow-none">
                 <div className="p-6 border-b border-gray-100 dark:border-gray-700">
@@ -1010,26 +1211,36 @@ export default function CourseViewerPage() {
                                 {module.lessons.map(lesson => {
                                     const isSelected = selectedLesson?.id === lesson.id;
                                     const isCompleted = enrollmentData?.completedItems?.includes(lesson.id);
+                                    const isLocked = checkIfLessonLocked(lesson.id);
                                     
                                     return (
                                         <li key={lesson.id}>
                                             <button 
-                                                onClick={() => handleLessonSelect(lesson, module.id)} 
+                                                onClick={() => !isLocked && handleLessonSelect(lesson, module.id)} 
+                                                disabled={isLocked}
                                                 className={`w-full text-left p-3 rounded-xl flex items-center justify-between text-sm transition-all duration-200 group ${
-                                                    isSelected 
+                                                    isLocked 
+                                                    ? 'opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-800/50' 
+                                                    :isSelected 
                                                         ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium shadow-sm ring-1 ring-indigo-200 dark:ring-indigo-800' 
                                                         : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
                                                 }`}
                                             >
                                                 <div className="flex items-center gap-3 overflow-hidden">
-                                                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isCompleted ? 'bg-green-500' : isSelected ? 'bg-indigo-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                                                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isLocked ? 'bg-gray-400' : isCompleted ? 'bg-green-500' : 'bg-indigo-500'}`} />
                                                     <span className="truncate">{lesson.title}</span>
                                                 </div>
                                                 <div className="flex items-center gap-1.5">
-                                                    {lesson.videoUrl && <Video className="w-3.5 h-3.5 text-gray-400" />}
-                                                    {lesson.sandboxUrl && <Code className="w-3.5 h-3.5 text-gray-400" />}
-                                                    {lesson.quiz && <HelpCircle className="w-3.5 h-3.5 text-gray-400" />}
-                                                    {isCompleted && <CheckCircle className="w-4 h-4 text-green-500" />}
+                                                    {isLocked ? (
+                                                        <Lock className="w-3.5 h-3.5 text-gray-400" />
+                                                    ) : (
+                                                        <>
+                                                            {lesson.videoUrl && <Video className="w-3.5 h-3.5 text-gray-400" />}
+                                                            {lesson.sandboxUrl && <Code className="w-3.5 h-3.5 text-gray-400" />}
+                                                            {lesson.quiz && <HelpCircle className="w-3.5 h-3.5 text-gray-400" />}
+                                                            {isCompleted && <CheckCircle className="w-4 h-4 text-green-500" />}
+                                                        </>
+                                                    )}
                                                 </div>
                                             </button>
                                         </li>
@@ -1042,7 +1253,7 @@ export default function CourseViewerPage() {
             </aside>
             
             {/* --- MAIN CONTENT --- */}
-            <main className="flex-1 overflow-y-auto p-6 md:p-12 bg-slate-50 dark:bg-gray-900 custom-scrollbar scroll-smooth">
+            <main className="flex-1 overflow-y-auto p-6 md:p-12 bg-slate-50 dark:bg-gray-900 custom-scrollbar scroll-smooth relative">
                 <div className="max-w-4xl mx-auto pb-20">
                     {selectedLesson ? (
                         <article className="animate-in fade-in duration-500 slide-in-from-bottom-4">
@@ -1055,8 +1266,33 @@ export default function CourseViewerPage() {
                                 <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white leading-tight">{selectedLesson.title}</h1>
                             </div>
 
+                            {selectedLesson.attachments && selectedLesson.attachments.length > 0 && (
+                                <div className="mt-12 pt-8 border-t border-gray-200">
+                                    <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                                        <Paperclip className="text-indigo-600" /> Lesson Resources
+                                    </h3>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        {selectedLesson.attachments.map((file, i) => (
+                                            <div key={i} className="p-4 bg-white dark:bg-gray-800 border rounded-2xl flex justify-between items-center shadow-sm">
+                                                <span className="text-sm font-medium truncate pr-4">{file.name}</span>
+                                                <div className="flex gap-2">
+                                                    
+                                                    <a 
+                                                        href={file.url} 
+                                                        download={file.name}
+                                                        className="px-3 py-1.5 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg hover:bg-indigo-200"
+                                                    >
+                                                        Open
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {selectedLesson.videoUrl && (
-                                <div className="mb-10 rounded-2xl overflow-hidden shadow-xl ring-1 ring-black/5 dark:ring-white/10 bg-black aspect-video">
+                                <div className="mb-10 mt-10 rounded-2xl overflow-hidden shadow-xl ring-1 ring-black/5 dark:ring-white/10 bg-black aspect-video">
                                     <video
                                         key={selectedLesson.id}
                                         controls
@@ -1092,8 +1328,10 @@ export default function CourseViewerPage() {
                                         <iframe 
                                             src={selectedLesson.sandboxUrl}
                                             title={`${selectedLesson.title} Sandbox`}
+                                            onLoad={trackLabUsage}
                                             className="w-full h-[600px]"
-                                            sandbox="allow-scripts allow-same-origin allow-modals"
+                                            //sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-popups allow-presentation"
+                                            allow="accelerometer; camera; microphone; clipboard-read; clipboard-write; fullscreen;"
                                         />
                                     </div>
                                 </div>
@@ -1137,7 +1375,7 @@ export default function CourseViewerPage() {
                             )}
 
                             {/* --- MARK COMPLETE BAR --- */}
-                            <div className="sticky bottom-6 mt-16 z-30">
+                            <div className="mt-16 z-30">
                                 <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md border border-gray-200 dark:border-gray-700 p-4 rounded-2xl shadow-xl flex justify-between items-center">
                                     <div>
                                         {isCurrentLessonComplete ? (
@@ -1150,16 +1388,130 @@ export default function CourseViewerPage() {
                                             </p>
                                         )}
                                     </div>
-                                    {!isCurrentLessonComplete && (
-                                        <button
-                                            onClick={handleMarkComplete}
-                                            disabled={!isReadyToComplete}
-                                            className="px-6 py-3 font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-indigo-500/25 active:scale-95"
-                                        >
-                                            Mark as Complete
-                                        </button>
+                                    
+                                    {!isLastLessonOfCourse && !isCurrentLessonComplete && (
+                                        <div>
+                                            <button
+                                                onClick={handleMarkComplete}
+                                                disabled={!isReadyToComplete}
+                                                className="px-8 py-3 font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:bg-gray-300 transition-all shadow-md active:scale-95"
+                                            >
+                                                Mark Lesson as Complete
+                                            </button>
+                                        </div>
                                     )}
+                                    
+                                    
                                 </div>
+                                {/* --- FINAL COMPLETION & CERTIFICATE SECTION --- */}
+
+                                {isLastLessonOfCourse && (
+                                    <div className="mt-16 animate-in slide-in-from-bottom-4 duration-700">
+                                        
+                                        {/* CASE A: The student has NOT marked this final lesson as complete yet */}
+                                        {!isCurrentLessonComplete ? (
+                                            <div className="bg-indigo-50 dark:bg-indigo-900/20 border-2 border-dashed border-indigo-300 dark:border-indigo-700 p-10 rounded-3xl text-center">
+                                                <h3 className="text-2xl font-bold text-indigo-900 dark:text-indigo-100 mb-2">Final Milestone!</h3>
+                                                <p className="text-indigo-700 dark:text-indigo-300 mb-8 max-w-md mx-auto">
+                                                    You've reached the end of the course. Mark this final lesson as complete to calculate your final grade and unlock your certificate.
+                                                </p>
+                                                <button
+                                                    onClick={handleMarkComplete}
+                                                    disabled={!isReadyToComplete}
+                                                    className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/30 transition-all transform hover:-translate-y-1 active:scale-95 disabled:bg-gray-400"
+                                                >
+                                                    FINISH COURSE & VIEW RESULTS
+                                                </button>
+                                                {!isReadyToComplete && selectedLesson.quiz && !quizAttempts.length && (
+                                                    <p className="mt-4 text-sm text-red-500 font-bold flex items-center justify-center gap-1">
+                                                        <Lock className="w-4 h-4" /> Please complete the final quiz first.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            /* CASE B: Final lesson is done (Progress is 100%). Now show eligibility/certificate results. */
+                                            <div className="bg-gradient-to-r from-indigo-600 to-purple-700 p-[2px] rounded-3xl shadow-2xl">
+                                                <div className="bg-white dark:bg-gray-900 p-8 rounded-[calc(1.5rem-1px)] flex flex-col md:flex-row justify-between items-center gap-6">
+                                                    <div className="text-center md:text-left space-y-2">
+                                                        {isEligible ? (
+                                                            <>
+                                                                <div className="flex items-center justify-center md:justify-start gap-2 text-green-600 dark:text-green-400">
+                                                                    <Trophy className="w-8 h-8" />
+                                                                    <span className="text-2xl font-black uppercase tracking-tight">Course Completed!</span>
+                                                                </div>
+                                                                <p className="text-gray-600 dark:text-gray-300 text-lg">
+                                                                    Outstanding work! Your final grade is <span className="font-bold text-indigo-600 dark:text-indigo-400">{finalGrade}%</span>.
+                                                                </p>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <div className="flex items-center justify-center md:justify-start gap-2 text-amber-600">
+                                                                    <AlertCircle className="w-8 h-8" />
+                                                                    <span className="text-2xl font-black uppercase tracking-tight">Requirement Not Met</span>
+                                                                </div>
+                                                                <p className="text-gray-600 dark:text-gray-400">
+                                                                    Your average grade is <span className="font-bold">{finalGrade}%</span>.
+                                                                </p>
+                                                                <p className="text-sm font-bold text-amber-700 bg-amber-100 px-4 py-2 rounded-xl inline-block mt-2">
+                                                                    You need at least 70% to claim a certificate.
+                                                                </p>
+                                                            </>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="flex flex-col items-center gap-3">
+                                                        {isClaimed ? (
+                                                            /* Only show View button if already claimed */
+                                                            <button
+                                                                onClick={() => setShowCertModal(true)}
+                                                                className="group px-10 py-5 bg-green-600 text-white font-black rounded-2xl transition-all shadow-xl hover:scale-105 active:scale-95 flex items-center gap-2"
+                                                            >
+                                                                <CheckCircle className="w-6 h-6" /> VIEW CERTIFICATE
+                                                            </button>
+                                                        ) : isEligible ? (
+                                                            /* Only show Claim button if eligible and not yet claimed */
+                                                            <button
+                                                                onClick={handleClaimCertificate}
+                                                                className="group px-10 py-5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl transition-all shadow-2xl hover:scale-105 active:scale-95 flex items-center gap-2"
+                                                            >
+                                                                CLAIM CERTIFICATE <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
+                                                            </button>
+                                                        ) : (
+                                                            /* Locked state */
+                                                            <div className="px-10 py-5 font-bold text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 cursor-not-allowed flex items-center gap-2">
+                                                                <Lock className="w-5 h-5" /> CERTIFICATE LOCKED
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                                {/* Certificate Modal Overlay */}
+                                {showCertModal && claimedCertData && (
+                                    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-300">
+                                        <div className="relative w-full max-w-4xl bg-white dark:bg-gray-900 rounded-3xl p-4 md:p-8 overflow-y-auto max-h-[95vh] shadow-2xl border border-white/20">
+                                            {/* Close Button */}
+                                            <button 
+                                                onClick={() => setShowCertModal(false)} 
+                                                className="absolute top-4 right-4 z-50 p-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+                                            >
+                                                <X className="w-6 h-6 text-gray-600 dark:text-gray-300" />
+                                            </button>
+                                            
+                                            <div className="py-4">
+                                                <CertificateCard cert={claimedCertData} />
+                                            </div>
+                                            
+                                            <div className="mt-6 text-center no-print">
+                                                <p className="text-gray-500 text-xs">
+                                                    You can print this page to save your certificate as a PDF.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             {currentModuleId && (
@@ -1182,6 +1534,26 @@ export default function CourseViewerPage() {
                     )}
                 </div>
             </main>
+            {previewFile && (
+                <div className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+                    <div className="bg-white dark:bg-gray-900 w-full max-w-5xl h-[90vh] rounded-3xl overflow-hidden flex flex-col relative">
+                        <div className="p-4 border-b flex justify-between items-center">
+                            <h3 className="font-bold">{previewFile.name}</h3>
+                            <button onClick={() => setPreviewFile(null)} className="p-2 hover:bg-gray-100 rounded-full"><X /></button>
+                        </div>
+                        <div className="flex-grow bg-gray-100 dark:bg-gray-800">
+                            {/* PDF and Images can be viewed in an iframe/img */}
+                            {previewFile.url.includes('.pdf') ? (
+                                <iframe src={`${previewFile.url}#toolbar=0`} className="w-full h-full border-0" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center p-10">
+                                    <img src={previewFile.url} className="max-w-full max-h-full object-contain shadow-2xl" alt="Preview" />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -17,7 +17,8 @@ import {
     PlusCircle, 
     Loader2, 
     AlertCircle,
-    ArrowLeft
+    ArrowLeft,
+    ChartColumnIncreasing
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -42,6 +43,7 @@ export default function CreateCourse() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [level, setLevel] = useState('basic');
 
   // -------------------- Fetch Tags --------------------
   useEffect(() => {
@@ -144,9 +146,12 @@ export default function CreateCourse() {
 
       await addDoc(collection(db, 'courses'), {
         title,
+        level: level,
         description,
         tags: tagStrings,
         imageUrl,
+        isActivated: false, // <-- NEW: Must be activated by admin
+        isHidden: true,     // <-- NEW: Hidden by default
         instructorIds: [user.uid], 
         createdAt: new Date(),
       });
@@ -274,6 +279,24 @@ export default function CreateCourse() {
                             className="text-sm"
                         />
                     </div>
+
+                    {/* Level */}  
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+                        <ChartColumnIncreasing className="w-4 h-4 text-indigo-500" />
+                            Difficulty Level
+                      </label>
+                      <select 
+                        value={level} 
+                        onChange={(e) => setLevel(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                      >
+                        <option value="basic">Basic - No prior knowledge</option>
+                        <option value="intermediate">Intermediate - Basic understanding required</option>
+                        <option value="advanced">Advanced - Expert level concepts</option>
+                      </select>
+                    </div>
+
                 </div>
             </div>
         </div>

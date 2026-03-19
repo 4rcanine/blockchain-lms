@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import useAuth from '@/hooks/useAuth';
-import Chatbot from '@/components/Chatbot';
+//import Chatbot from '@/components/Chatbot';
 import { 
     LayoutDashboard, 
     Bell, 
@@ -128,10 +128,10 @@ export default function StudentLayout({
                     {children}
                 </div>
             </main>
-
+{/*
             <div className="fixed bottom-6 right-6 z-50">
                 <Chatbot />
-            </div>
+            </div>*/}
         </div>
     );
 }

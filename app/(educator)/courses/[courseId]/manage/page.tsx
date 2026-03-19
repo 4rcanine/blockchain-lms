@@ -1,6 +1,7 @@
 // app/(educator)/courses/[courseId]/manage/page.tsx
 'use client';
 
+
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
     doc,
@@ -23,6 +24,7 @@ import { useParams } from 'next/navigation';
 import AddContentModal from '@/components/AddContentModal';
 import VideoUploader from '@/components/VideoUploader';
 import ImageUploader from '@/components/ImageUploader';
+import FileUploader from '@/components/FileUploader'; 
 import Link from 'next/link';
 import RichTextEditor, { RichTextEditorRef } from '@/components/RichTextEditor';
 import { 
@@ -48,6 +50,7 @@ import {
     Settings,
     ChevronDown,
     ChevronUp,
+    Paperclip,
     History
 } from 'lucide-react';
 
@@ -120,6 +123,7 @@ interface Lesson {
     videoUrl?: string;
     createdAt?: any;
     updatedAt?: any; 
+    attachments?: { name: string; url: string }[]; 
 }
 
 interface Module {
@@ -162,6 +166,8 @@ const LessonForm = ({
     const contentRef = useRef(existingLesson?.content || '');
     const editorRef = useRef<RichTextEditorRef>(null);
     const initialContent = useRef(existingLesson?.content || '').current;
+    const [attachments, setAttachments] = useState<{name: string, url: string}[]>(existingLesson?.attachments || []);
+
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -174,6 +180,7 @@ const LessonForm = ({
             content: contentRef.current,
             sandboxUrl: sandboxUrl.trim() || null,
             videoUrl: videoUrl || null,
+            attachments: attachments,
             createdAt: existingLesson?.createdAt || serverTimestamp(),
             updatedAt: serverTimestamp(),
         };
@@ -249,6 +256,24 @@ const LessonForm = ({
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Lesson Content</label>
                     <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                         {MemoizedEditor}
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">Lesson Attachments (Optional)</label>
+                    <FileUploader 
+                        onUploadComplete={(url: string, name: string) => 
+                            setAttachments([...attachments, { url, name }])
+                        } 
+                        // You are MISSING onUploadStart and onUploadError here!
+                    />
+                    <div className="flex flex-wrap gap-2 mt-2">
+                        {attachments.map((file, i) => (
+                            <div key={i} className="flex items-center gap-2 bg-indigo-50 px-3 py-1 rounded-full text-xs font-bold text-indigo-600">
+                                <Paperclip className="w-3 h-3" /> {file.name}
+                                <button type="button" onClick={() => setAttachments(attachments.filter((_, idx) => idx !== i))}><X className="w-3 h-3" /></button>
+                            </div>
+                        ))}
                     </div>
                 </div>
                 
@@ -1174,7 +1199,13 @@ export default function ManageCoursePage() {
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
                 <div>
-                    <h1 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1">Course Management</h1>
+                    <h1 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1">Course Management
+                        {course && (course as any).isActivated === false && (
+                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px] animate-pulse">
+                                Pending Admin Activation
+                            </span>
+                        )}
+                    </h1>
                     <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{course?.title || 'Untitled Course'}</h2>
                 </div>
                 <div className="flex flex-wrap gap-3">

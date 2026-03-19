@@ -1,12 +1,13 @@
 // app/(educator)/courses/[courseId]/analytics/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useParams } from 'next/navigation';
 import useAuth from '@/hooks/useAuth';
 import Link from 'next/link';
+import { calculateStudentStatus } from '@/utils/analyticsEngine';
 import { 
     BarChart3, 
     TrendingUp, 
@@ -15,7 +16,9 @@ import {
     CheckCircle, 
     ArrowLeft, 
     AlertCircle,
-    Loader2
+    Loader2,
+    Sparkles,
+    Trophy
 } from 'lucide-react';
 
 import { Bar, Line, Pie } from 'react-chartjs-2';
@@ -53,6 +56,8 @@ interface StudentProgress {
     progress: number;
     status: string;
     latestGrade?: number;
+    averageGrade?: number;
+    lastAccessedAt?: number;
 }
 
 interface AnalyticsSummary {
@@ -66,12 +71,14 @@ interface EnrollmentData {
     progress: number;
     studentEmail?: string; 
     completedItems?: string[];
+    lastAccessedAt?: any;
 }
 
 interface RawGrade {
     studentId: string;
     activityName: string;
     grade: number;
+    totalQuestions: number;
     attemptedAt: number;
 }
 
@@ -79,6 +86,7 @@ interface ChartData {
     barChartData: ChartDataObject; 
     lineChartData: ChartDataObject; 
     pieChartData: ChartDataObject; 
+    auditChartData: ChartDataObject;
 }
 
 interface ChartDataset {
@@ -107,7 +115,14 @@ export default function AnalyticsPage() {
     const [chartData, setChartData] = useState<ChartData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-
+    
+    const redFlagStudents = useMemo(() => {
+    // Add the ?. to ensure it doesn't crash if studentData is null
+    return (studentData || []).filter(s => {
+        const { riskLevel } = calculateStudentStatus(s.progress, s.latestGrade || 0, s.lastAccessedAt || Date.now());
+        return riskLevel === 'high';
+    });
+}, [studentData]);
     // Dark Mode Detection for Charts
     const [isDarkMode, setIsDarkMode] = useState(false);
     useEffect(() => {
@@ -152,6 +167,7 @@ export default function AnalyticsPage() {
             }
         }
     });
+    
 
     const getPieOptions = (): ChartOptions<'pie'> => ({
         responsive: true,
@@ -208,6 +224,7 @@ export default function AnalyticsPage() {
                                     studentId: attemptData.studentId,
                                     activityName: `${lessonDoc.data().title} Quiz`,
                                     grade: attemptData.score || 0,
+                                    totalQuestions: attemptData.totalQuestions || 0,
                                     attemptedAt: attemptData.submittedAt?.toMillis() || Date.now(),
                                 } as RawGrade));
                             });
@@ -248,6 +265,21 @@ export default function AnalyticsPage() {
                     const userData = userSnaps.find(snap => snap.id === enrollment.id)?.data();
                     const completedItems = enrollment.completedItems || [];
 
+
+                    const studentAttempts = rawGrades.filter(g => g.studentId === enrollment.id);
+                    let studentTotalScore = 0;
+                    let studentTotalPossible = 0;
+
+                    studentAttempts.forEach(attempt => {
+                        studentTotalScore += attempt.grade;
+                        studentTotalPossible += attempt.totalQuestions;
+                    });
+
+                    const averageGrade = studentTotalPossible > 0 
+                        ? Math.round((studentTotalScore / studentTotalPossible) * 100) 
+                        : 0;
+                    // -------------------------------------
+
                     let progress = 0;
                     if (totalTrackableItems > 0) {
                         progress = parseFloat(((completedItems.length / totalTrackableItems) * 100).toFixed(2));
@@ -261,7 +293,9 @@ export default function AnalyticsPage() {
                         email: userData?.email || 'Unknown User',
                         progress: progress,
                         status: enrollment.status,
+                        averageGrade: averageGrade,
                         latestGrade: latestGradesMap.get(enrollment.id),
+                        lastAccessedAt: enrollment.lastAccessedAt?.toMillis() || 0, 
                     };
                 });
                 
@@ -272,7 +306,7 @@ export default function AnalyticsPage() {
                     averageProgress: detailedStudentData.length > 0 ? parseFloat((totalProgressSum / detailedStudentData.length).toFixed(2)) : 0,
                 });
 
-                setChartData(aggregateChartData(detailedStudentData, rawGrades)); 
+                setChartData(aggregateChartData(detailedStudentData, rawGrades, enrollments)); 
 
             } catch (err: any) {
                 setError(err.message);
@@ -333,6 +367,27 @@ export default function AnalyticsPage() {
                 />
             </div>
 
+            {redFlagStudents.length > 0 && (
+                <div className="mb-8 p-6 bg-red-50 border-2 border-red-200 rounded-2xl animate-pulse">
+                    <h2 className="text-red-800 font-black flex items-center gap-2 mb-4 uppercase tracking-tight">
+                        <AlertCircle className="w-6 h-6" /> Actionable Red Flags: Targeted Intervention Required
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {redFlagStudents.map(student => (
+                            <div key={student.id} className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center">
+                                <div>
+                                    <p className="font-bold text-gray-900">{student.email}</p>
+                                    <p className="text-xs text-red-600 font-medium">Critical Risk: Low engagement detected.</p>
+                                </div>
+                                <button className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700">
+                                    Email Intervention
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Charts Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 
@@ -368,6 +423,26 @@ export default function AnalyticsPage() {
                         <Pie data={chartData.pieChartData} options={getPieOptions()} />
                     </div>
                 </div>
+
+                {/* CURRICULUM AUDIT: Lab vs Grade Correlation */}
+                    <div className="lg:col-span-2 bg-indigo-50 dark:bg-indigo-900/10 p-8 rounded-3xl border-2 border-indigo-100 dark:border-indigo-800 shadow-inner">
+                        <div className="flex items-center gap-3 mb-6">
+                            <Sparkles className="w-6 h-6 text-indigo-600" />
+                            <div>
+                                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Curriculum Audit: Lab Impact</h3>
+                                <p className="text-sm text-gray-500">Correlation between Interactive Lab usage and final quiz performance.</p>
+                            </div>
+                        </div>
+                        <div className="h-[400px]">
+                            <Bar 
+                                data={chartData.auditChartData} 
+                                options={{
+                                    ...getChartOptions('Lab Correlation'),
+                                    plugins: { ...getChartOptions('').plugins, legend: { display: true, position: 'top' } }
+                                }} 
+                            />
+                        </div>
+                    </div>
             </div>
 
             {/* Student Table */}
@@ -381,7 +456,7 @@ export default function AnalyticsPage() {
                             <tr className="bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">
                                 <th className="px-6 py-4 font-semibold">Student</th>
                                 <th className="px-6 py-4 font-semibold">Progress</th>
-                                <th className="px-6 py-4 font-semibold">Latest Grade</th>
+                                <th className="px-6 py-4 font-semibold">Average Grade</th>
                                 <th className="px-6 py-4 font-semibold">Status</th>
                             </tr>
                         </thead>
@@ -410,12 +485,12 @@ export default function AnalyticsPage() {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 text-gray-600 dark:text-gray-300">
-                                            {student.latestGrade !== undefined ? (
-                                                <span className="font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-sm">
-                                                    {student.latestGrade}%
+                                            {student.averageGrade !== undefined ? (
+                                                <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                                                    {student.averageGrade}%
                                                 </span>
                                             ) : (
-                                                <span className="text-gray-400 italic text-xs">No Data</span>
+                                                <span className="text-gray-400 italic text-xs">No Attempts</span>
                                             )}
                                         </td>
                                         <td className="px-6 py-4">
@@ -452,9 +527,14 @@ const StatCard = ({ title, value, icon, color }: { title: string, value: string 
             </div>
         </div>
     </div>
+    
 );
 
-function aggregateChartData(students: StudentProgress[], grades: RawGrade[]): ChartData {
+function aggregateChartData(
+    students: StudentProgress[] = [], 
+    grades: RawGrade[] = [], 
+    enrollments: any[] = []
+): ChartData {
     // 1. Bar Chart
     const activityTotals = new Map<string, { sum: number, count: number }>();
     const studentGrades = new Map<string, RawGrade[]>(); 
@@ -509,7 +589,37 @@ function aggregateChartData(students: StudentProgress[], grades: RawGrade[]): Ch
         return studentEngagement.get(student.id) || 0;
     });
 
+    const labUsers = enrollments.filter(e => e.engagedLabs && e.engagedLabs.length > 0);
+    const nonLabUsers = enrollments.filter(e => !e.engagedLabs || e.engagedLabs.length === 0);
+
+    const getAvg = (list: any[]) => {
+        if (list.length === 0) return 0;
+        const total = list.reduce((acc, curr) => {
+            const studentGrade = grades.find(g => g.studentId === curr.id)?.grade || 0;
+            return acc + studentGrade;
+        }, 0);
+        return Math.round(total / list.length);
+    };
+
+    const auditChartData = {
+        labels: ['Course Performance'],
+        datasets: [
+            {
+                label: 'Engaged with Labs',
+                data: [getAvg(labUsers)],
+                backgroundColor: '#6366f1', // Indigo
+            },
+            {
+                label: 'No Lab Engagement',
+                data: [getAvg(nonLabUsers)],
+                backgroundColor: '#f43f5e', // Rose
+            }
+        ]
+    };
+
+
     return {
+        
         barChartData: {
             labels: barLabels,
             datasets: [{
@@ -533,7 +643,8 @@ function aggregateChartData(students: StudentProgress[], grades: RawGrade[]): Ch
                 hoverOffset: 4,
                 borderWidth: 0,
             }]
-        }
+        },
+        auditChartData: auditChartData,
     };
 }
 

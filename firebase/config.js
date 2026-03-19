@@ -4,6 +4,7 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
+
 // Firebase configuration object
 const firebaseConfig = {
   apiKey: "AIzaSyDHrvaQ7oliyyCIVTj4Xq8coTAEGUszUh8",
@@ -15,13 +16,10 @@ const firebaseConfig = {
   measurementId: "G-2SW7PCERGC"
 };
 
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+
 // Initialize Firebase app
-let app;
-if (!getApps().length) {
-  app = initializeApp(firebaseConfig);
-} else {
-  app = getApps()[0];
-}
+
 
 // Initialize Firebase services
 const auth = getAuth(app);

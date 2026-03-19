@@ -178,13 +178,12 @@ export default function EnrollmentsPage() {
       </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
+        <div className="lg:col-span-1 space-y-6"> 
+          <div className="bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700 rounded-2xl p-6">
         {/* --- LEFT COL: Add Student --- */}
-        <div className="lg:col-span-1 space-y-6">
-            <div className="bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700 rounded-2xl p-6">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
+        <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
                     <UserPlus className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                    Direct Enrollment
+                    <span>Direct Enrollment</span> {/* Wrap text in a span if spacing is needed */}
                 </h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                     Manually enroll a student by their email address.

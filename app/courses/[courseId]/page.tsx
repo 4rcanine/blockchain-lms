@@ -1,7 +1,7 @@
 // app/courses/[courseId]/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { 
   doc, 
   getDoc, 
@@ -22,13 +22,16 @@ import {
     Loader2, 
     Tag,
     UserPlus,
-    Lock
+    Lock,
+    AlertTriangle
 } from 'lucide-react';
 
 // --- Types ---
-interface Course { 
+interface Course {
+    id: string; 
   title: string; 
   description: string; 
+  level: 'basic' | 'intermediate' | 'advanced';
   tags: string[]; 
   imageUrl?: string;
   instructorIds?: string[];
@@ -37,6 +40,8 @@ interface Course {
 type EnrollmentStatus = 'unenrolled' | 'pending' | 'enrolled' | 'rejected';
 
 // --- Helper Component: Status Badge ---
+
+
 const StatusBadge = ({ status }: { status: EnrollmentStatus }) => {
     if (status === 'enrolled') {
         return (
@@ -74,22 +79,63 @@ export default function CourseDetailPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // --- 1. Fetch Data Effect ---
+    const [isLocked, setIsLocked] = useState(false);
+    const [prereqMissing, setPrereqMissing] = useState<string | null>(null);
+
+
+    // --- 1. Prerequisite Logic Helper ---
+  const checkPrerequisites = async (targetCourse: Course) => {
+    if (!user || targetCourse.level === 'basic') return;
+
+    try {
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        const completedIds = userSnap.data()?.completedCourses || [];
+
+        // Required level logic
+        const requiredLevel = targetCourse.level === 'advanced' ? 'intermediate' : 'basic';
+
+        // Fetch details of all completed courses
+        const completedDocs = await Promise.all(
+            completedIds.map((id: string) => getDoc(doc(db, 'courses', id)))
+        );
+
+        const metPrereq = completedDocs.some(d => {
+            if (!d.exists()) return false;
+            const data = d.data();
+            const levelMatches = data.level === requiredLevel;
+            // Check if student has finished at least one course with matching level AND at least one matching tag
+            const tagMatches = data.tags.some((t: string) => targetCourse.tags.includes(t));
+            return levelMatches && tagMatches;
+        });
+
+        if (!metPrereq) {
+            setIsLocked(true);
+            setPrereqMissing(requiredLevel);
+        }
+    } catch (err) {
+        console.error("Prereq check failed", err);
+    }
+  };
+
   useEffect(() => {
     if (!courseId) return;
 
-    const fetchCourseAndEnrollmentStatus = async () => {
+    const fetchAllData = async () => {
       try {
-        // Fetch course details
+        setLoading(true);
+        // A. Fetch course details
         const courseDocRef = doc(db, 'courses', courseId);
         const courseDocSnap = await getDoc(courseDocRef);
+        
         if (!courseDocSnap.exists()) {
           setError('Course not found.');
           return;
         }
-        setCourse(courseDocSnap.data() as Course);
 
-        // If user is logged in, check their enrollment request status
+        const courseData = { id: courseDocSnap.id, ...courseDocSnap.data() } as Course;
+        setCourse(courseData);
+
+        // B. If user is logged in, check enrollment AND prerequisites
         if (user) {
           const requestDocRef = doc(db, 'courses', courseId, 'enrollmentRequests', user.uid);
           const requestDocSnap = await getDoc(requestDocRef);
@@ -97,7 +143,8 @@ export default function CourseDetailPage() {
           if (requestDocSnap.exists()) {
             setEnrollmentStatus(requestDocSnap.data().status as EnrollmentStatus);
           } else {
-            setEnrollmentStatus('unenrolled');
+            // Check if they are allowed to enroll based on previous courses
+            await checkPrerequisites(courseData);
           }
         }
       } catch (err) {
@@ -108,7 +155,7 @@ export default function CourseDetailPage() {
       }
     };
 
-    fetchCourseAndEnrollmentStatus();
+    fetchAllData();
   }, [courseId, user]);
 
   // --- 2. Handle Enrollment ---
@@ -117,10 +164,10 @@ export default function CourseDetailPage() {
       router.push('/login');
       return;
     }
-    if (!course) return;
+    if (!course || isLocked) return;
 
     const instructorIds = course.instructorIds;
-    if (!instructorIds || instructorIds.length === 0) {
+    if (!instructorIds?.length) {
         setError("Cannot enroll: No instructor assigned to this course.");
         return;
     }
@@ -140,10 +187,10 @@ export default function CourseDetailPage() {
       }, { merge: true });
 
       // B. Notify Instructors
-      instructorIds.forEach((instructorId) => {
-          const notificationRef = doc(collection(db, 'users', instructorId, 'notifications'));
-          batch.set(notificationRef, {
-              message: `${user.email} has requested to enroll in your course: ${course.title}`,
+      instructorIds.forEach((id) => {
+          const notifRef = doc(collection(db, 'users', id, 'notifications'));
+          batch.set(notifRef, {
+              message: `${user.email} requested to enroll in ${course.title}`,
               courseId: courseId,
               type: 'enrollment_request',
               createdAt: serverTimestamp(),
@@ -163,6 +210,13 @@ export default function CourseDetailPage() {
   
   // --- 3. Render Helpers ---
   const getButtonConfig = () => {
+    if (isLocked && enrollmentStatus === 'unenrolled') {
+        return {
+            text: `Unlock ${prereqMissing} first`,
+            disabled: true,
+            className: 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed border border-gray-300'
+        };
+    }
     switch (enrollmentStatus) {
       case 'enrolled':
         return { 
@@ -199,7 +253,7 @@ export default function CourseDetailPage() {
     </div>
   );
 
-  if (error) return (
+  if (error || !course) return (
     <div className="flex h-[50vh] items-center justify-center">
          <div className="text-center bg-red-50 dark:bg-red-900/20 p-8 rounded-2xl border border-red-100 dark:border-red-800">
             <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-3" />
@@ -208,8 +262,6 @@ export default function CourseDetailPage() {
          </div>
     </div>
   );
-
-  if (!course) return null;
 
   const btnConfig = getButtonConfig();
 
@@ -237,8 +289,8 @@ export default function CourseDetailPage() {
                         </div>
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                    
                     <div className="absolute bottom-0 left-0 p-8 text-white">
+                        <span className="px-2 py-1 bg-indigo-600 rounded text-[10px] font-black uppercase mb-2 inline-block tracking-widest">{course.level}</span>
                         <h1 className="text-3xl md:text-5xl font-bold mb-3 drop-shadow-md">{course.title}</h1>
                         <div className="flex flex-wrap gap-2">
                             {course.tags.map(tag => (
@@ -279,6 +331,19 @@ export default function CourseDetailPage() {
                                         </p>
                                     )}
                                 </div>
+
+                                {/* PREREQUISITE WARNING BOX */}
+                                {isLocked && enrollmentStatus === 'unenrolled' && (
+                                    <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl">
+                                        <p className="text-[10px] font-bold text-amber-800 dark:text-amber-400 uppercase flex items-center gap-1 mb-1">
+                                            <Lock className="w-3 h-3" /> Locked
+                                        </p>
+                                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                                            Finish a <span className="font-bold">{prereqMissing}</span> level course in: {course.tags.join(', ')} to unlock.
+                                        </p>
+                                    </div>
+                                )}
+
 
                                 {user ? (
                                     <button 

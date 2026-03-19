@@ -1056,7 +1056,7 @@ export default function CourseViewerPage() {
             studentName: user.displayName || user.email
         });
         setShowCertModal(true);
-        } catch (err) {
+        } catch (err: any) {
             console.error("Certificate Error:", err);
             alert("Failed to claim certificate: " + err.message);
         }
@@ -1077,7 +1077,7 @@ export default function CourseViewerPage() {
                     await updateDoc(enrollmentRef, {
                         lastAccessedAt: serverTimestamp()
                     });
-                } catch (err) {
+                } catch (err: any) {
                     console.error("Error updating last access:", err);
                 }
             };
